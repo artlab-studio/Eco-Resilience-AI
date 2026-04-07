@@ -1,51 +1,88 @@
 import streamlit as st
 import pandas as pd
-import pydeck as pdk
 import altair as alt
+import folium
+from streamlit_folium import st_folium
 
 st.set_page_config(page_title="Eco-Resilience AI Platform", layout="wide")
 
-# -----------------------------
-# CUSTOM STYLING
-# -----------------------------
-st.markdown("""
+# -------------------------------------------------
+# STYLE
+# -------------------------------------------------
+background_image_url = "https://images.unsplash.com/photo-1500375592092-40eb2168fd21?auto=format&fit=crop&w=1600&q=80"
+
+st.markdown(f"""
 <style>
-.stApp {
-    background: linear-gradient(135deg, #eef6f3 0%, #dceee7 45%, #f8fbfa 100%);
-}
-.block-container {
+.stApp {{
+    background-image:
+        linear-gradient(rgba(239,246,243,0.88), rgba(239,246,243,0.88)),
+        url("{background_image_url}");
+    background-size: cover;
+    background-attachment: fixed;
+    background-position: center;
+}}
+
+.block-container {{
     padding-top: 1.2rem;
     padding-bottom: 2rem;
-}
-h1, h2, h3 {
+}}
+
+h1, h2, h3 {{
     color: #184d3b;
-}
-.custom-card {
-    background: rgba(255,255,255,0.84);
+}}
+
+.custom-card {{
+    background: rgba(255,255,255,0.88);
     border: 1px solid #d8e6df;
     border-radius: 18px;
     padding: 18px 20px;
-    box-shadow: 0 6px 18px rgba(0,0,0,0.05);
+    box-shadow: 0 6px 18px rgba(0,0,0,0.06);
     margin-bottom: 16px;
-}
-.small-note {
+}}
+
+.small-note {{
     font-size: 0.9rem;
     color: #4b5d56;
-}
-.section-title {
-    font-weight: 700;
+}}
+
+.hero-box {{
+    background: linear-gradient(135deg, rgba(24,77,59,0.92), rgba(36,111,86,0.88));
+    color: white;
+    border-radius: 18px;
+    padding: 28px;
+    margin-bottom: 18px;
+    box-shadow: 0 8px 22px rgba(0,0,0,0.10);
+}}
+
+.legend-box {{
+    background: rgba(255,255,255,0.92);
+    border-left: 5px solid #184d3b;
+    border-radius: 12px;
+    padding: 12px 15px;
+    margin-bottom: 10px;
+}}
+
+.title-block {{
+    background: rgba(255,255,255,0.92);
+    border: 2px solid #184d3b;
+    border-radius: 12px;
+    padding: 16px;
+}}
+
+.north-arrow {{
+    font-size: 2rem;
+    font-weight: bold;
+    text-align: center;
     color: #184d3b;
-    margin-bottom: 0.3rem;
-}
+}}
 </style>
 """, unsafe_allow_html=True)
 
-# -----------------------------
+# -------------------------------------------------
 # DATA
-# Encoded demo values based on PhilAtlas Butuan profile and selected barangay figures
-# -----------------------------
+# -------------------------------------------------
 city_profile = {
-    "City": "Butuan",
+    "City": "Butuan City",
     "Region": "Caraga (Region XIII)",
     "Type": "Highly Urbanized City",
     "Barangays": 86,
@@ -67,49 +104,88 @@ barangay_data = pd.DataFrame([
     {"Barangay": "Obrero Poblacion", "Population_2020": 8643, "Population_2015": 9774, "Growth_Rate": -2.56, "Percent_Share": 2.32, "Latitude": 8.9490, "Longitude": 125.5430},
 ])
 
-# -----------------------------
-# HEADER
-# -----------------------------
-st.title("Eco-Resilience AI Platform")
-st.caption("Decision-Support Tool for DRRM, Circular Economy, and Hazard-Informed Planning")
+hazard_info = {
+    "Flood Hazard": {
+        "color": "blue",
+        "description": "Used for identifying low-lying and flood-prone areas for settlement planning, evacuation strategy, and drainage intervention."
+    },
+    "Rain-Induced Landslide": {
+        "color": "orange",
+        "description": "Used for slope instability assessment and land suitability review in upland and disturbed areas."
+    },
+    "Topographic Reference": {
+        "color": "green",
+        "description": "Used as terrain context for elevation, landform interpretation, and site characterization."
+    },
+    "Storm Surge Reference": {
+        "color": "purple",
+        "description": "Useful for coastal hazard interpretation and evacuation planning in vulnerable areas."
+    },
+    "Integrated Risk View": {
+        "color": "red",
+        "description": "A combined planning view for disaster exposure, environmental condition, and settlement sensitivity."
+    }
+}
 
+# -------------------------------------------------
+# HEADER
+# -------------------------------------------------
 st.markdown("""
-<div class="custom-card">
-This prototype combines local demographic context, barangay reference data, hazard-reference links,
-and a simple AI-assisted assessment workflow to support students, researchers, planners, and local governments.
+<div class="hero-box">
+    <h1 style="color:white; margin-bottom:0.3rem;">Eco-Resilience AI Platform</h1>
+    <p style="font-size:1.05rem; margin-bottom:0;">
+    A decision-support and research-assist website for DRRM, circular economy, demographic profiling,
+    barangay mapping, and thesis-ready planning outputs.
+    </p>
 </div>
 """, unsafe_allow_html=True)
 
-# -----------------------------
-# SIDEBAR
-# -----------------------------
-st.sidebar.title("Project Panel")
-st.sidebar.write("**Application Context:** Butuan City, Caraga")
-st.sidebar.write("**Prototype Category:** Professional")
-st.sidebar.write("**Primary Users:** Students, researchers, planners, LGUs")
+st.markdown("""
+<div class="custom-card">
+This prototype is designed to help students, researchers, planners, and local governments work with
+fragmented spatial and planning information in one place. It combines barangay profile data, map viewing,
+hazard-theme switching, assessment tools, and thesis-oriented output structure.
+</div>
+""", unsafe_allow_html=True)
 
-track = st.sidebar.radio(
+# -------------------------------------------------
+# SIDEBAR
+# -------------------------------------------------
+st.sidebar.title("Research Controls")
+
+selected_barangay = st.sidebar.selectbox(
+    "Select Barangay",
+    barangay_data["Barangay"].tolist()
+)
+
+selected_theme = st.sidebar.selectbox(
+    "Select Map Theme",
+    list(hazard_info.keys())
+)
+
+planning_focus = st.sidebar.radio(
     "Planning Focus",
     ["Integrated", "DRRM", "Circular Economy"]
 )
 
-selected_barangay = st.sidebar.selectbox(
-    "Quick Barangay Selector",
-    barangay_data["Barangay"].tolist()
+basemap_choice = st.sidebar.selectbox(
+    "Basemap Style",
+    ["OpenStreetMap", "CartoDB Positron", "CartoDB Voyager"]
 )
 
-# -----------------------------
+# -------------------------------------------------
 # TABS
-# -----------------------------
-tab1, tab2, tab3 = st.tabs([
-    "City & Barangay Profile",
-    "Hazard Reference Tools",
-    "Assessment & Export"
+# -------------------------------------------------
+tab1, tab2, tab3, tab4 = st.tabs([
+    "Overview",
+    "Map Studio",
+    "Assessment Tool",
+    "Thesis Map Template"
 ])
 
-# =========================================================
-# TAB 1 - PROFILE
-# =========================================================
+# -------------------------------------------------
+# TAB 1 - OVERVIEW
+# -------------------------------------------------
 with tab1:
     st.subheader("Butuan City Profile")
 
@@ -121,37 +197,12 @@ with tab1:
 
     st.markdown(f"""
     <div class="custom-card">
-    <b>Location Context:</b> {city_profile['City']} is a {city_profile['Type']} in {city_profile['Region']}.
-    Its reference coordinates are approximately ({city_profile['Latitude']}, {city_profile['Longitude']}), with
-    an estimated elevation of {city_profile['Elevation_m']} meters above sea level.
+    <b>Urban Context:</b> {city_profile['City']} is a {city_profile['Type']} in {city_profile['Region']}.
+    This dashboard uses Butuan-focused demographic and spatial reference content to support academic and planning workflows.
     </div>
     """, unsafe_allow_html=True)
 
-    st.subheader("Barangay Reference Map")
-
-    view_state = pdk.ViewState(
-        latitude=city_profile["Latitude"],
-        longitude=city_profile["Longitude"],
-        zoom=11,
-        pitch=0,
-    )
-
-    layer = pdk.Layer(
-        "ScatterplotLayer",
-        data=barangay_data,
-        get_position='[Longitude, Latitude]',
-        get_radius=350,
-        pickable=True,
-    )
-
-    st.pydeck_chart(pdk.Deck(
-        map_style="mapbox://styles/mapbox/light-v9",
-        initial_view_state=view_state,
-        layers=[layer],
-        tooltip={"text": "{Barangay}\nPopulation: {Population_2020}\nGrowth Rate: {Growth_Rate}%"}
-    ))
-
-    st.subheader("Selected Barangay Demographic Profile")
+    st.subheader("Barangay Demographic Profile")
 
     display_df = barangay_data[[
         "Barangay", "Population_2020", "Population_2015", "Growth_Rate", "Percent_Share"
@@ -163,207 +214,202 @@ with tab1:
 
     st.dataframe(display_df, use_container_width=True)
 
-    chart_col1, chart_col2 = st.columns(2)
+    c1, c2 = st.columns(2)
 
-    with chart_col1:
-        st.markdown("### Top Selected Barangays by Population")
+    with c1:
+        st.markdown("### Population by Selected Barangays")
         pop_chart = alt.Chart(barangay_data).mark_bar().encode(
             x=alt.X("Population_2020:Q", title="Population (2020)"),
             y=alt.Y("Barangay:N", sort="-x", title="Barangay"),
             tooltip=["Barangay", "Population_2020", "Growth_Rate", "Percent_Share"]
-        ).properties(height=350)
+        ).properties(height=360)
         st.altair_chart(pop_chart, use_container_width=True)
 
-    with chart_col2:
-        st.markdown("### Population Share of Selected Barangays")
-        share_chart = alt.Chart(barangay_data).mark_arc(innerRadius=60).encode(
+    with c2:
+        st.markdown("### Population Share")
+        share_chart = alt.Chart(barangay_data).mark_arc(innerRadius=70).encode(
             theta=alt.Theta(field="Percent_Share", type="quantitative"),
             color=alt.Color(field="Barangay", type="nominal"),
             tooltip=["Barangay", "Percent_Share", "Population_2020"]
-        ).properties(height=350)
+        ).properties(height=360)
         st.altair_chart(share_chart, use_container_width=True)
 
-# =========================================================
-# TAB 2 - HAZARD REFERENCE TOOLS
-# =========================================================
+# -------------------------------------------------
+# TAB 2 - MAP STUDIO
+# -------------------------------------------------
 with tab2:
-    st.subheader("Hazard Reference Tools")
+    st.subheader("Interactive Map Studio")
 
-    st.markdown("""
-    <div class="custom-card">
-    This section points users to official hazard platforms that can support flood, landslide,
-    storm surge, seismic, and general geospatial reference work.
-    </div>
-    """, unsafe_allow_html=True)
+    row = barangay_data[barangay_data["Barangay"] == selected_barangay].iloc[0]
 
-    c1, c2 = st.columns(2)
+    if basemap_choice == "OpenStreetMap":
+        tiles = "OpenStreetMap"
+    elif basemap_choice == "CartoDB Positron":
+        tiles = "CartoDB positron"
+    else:
+        tiles = "CartoDB Voyager"
 
-    with c1:
-        st.markdown("### Official Hazard Platforms")
-        st.markdown("""
-        <div class="custom-card">
-        <b>Project NOAH</b><br>
-        Hazard viewing and public hazard awareness for floods, landslides, and storm surge.<br><br>
-        <a href="https://noah.up.edu.ph/" target="_blank">Open Project NOAH</a><br>
-        <a href="https://noah.up.edu.ph/noah-studio" target="_blank">Open NOAH Studio</a>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="custom-card">
-        <b>HazardHunterPH</b><br>
-        Location-based indicative hazard assessment and report generation.<br><br>
-        <a href="https://hazardhunter.georisk.gov.ph/" target="_blank">Open HazardHunterPH</a>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="custom-card">
-        <b>MGB Geohazard Maps</b><br>
-        Official geohazard map reference portal from the Mines and Geosciences Bureau.<br><br>
-        <a href="https://databaseportal.mgb.gov.ph/" target="_blank">Open MGB Portal</a>
-        </div>
-        """, unsafe_allow_html=True)
-
-    with c2:
-        st.markdown("### Geospatial Reference Platforms")
-        st.markdown("""
-        <div class="custom-card">
-        <b>NAMRIA</b><br>
-        National mapping and geospatial reference resources.<br><br>
-        <a href="https://www.namria.gov.ph/" target="_blank">Open NAMRIA</a>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="custom-card">
-        <b>GeoRiskPH</b><br>
-        National geospatial risk and hazard initiative.<br><br>
-        <a href="https://georisk.gov.ph/" target="_blank">Open GeoRiskPH</a>
-        </div>
-        """, unsafe_allow_html=True)
-
-        st.markdown("""
-        <div class="custom-card">
-        <b>NAMRIA eMapa</b><br>
-        Reference portal for maps, charts, and publications.<br><br>
-        <a href="https://isportal.namria.gov.ph/eMapa/" target="_blank">Open NAMRIA eMapa</a>
-        </div>
-        """, unsafe_allow_html=True)
-
-    st.markdown("### Hazard Research Workflow")
-    workflow_df = pd.DataFrame({
-        "Step": [
-            "1. Select location",
-            "2. Check demographic profile",
-            "3. Review official hazard sources",
-            "4. Record observations",
-            "5. Generate planning notes"
-        ],
-        "Description": [
-            "Choose the barangay or study area.",
-            "Review population and growth context.",
-            "Open NOAH, HazardHunterPH, MGB, or NAMRIA for hazard reference.",
-            "Summarize flood, landslide, storm surge, or other relevant findings.",
-            "Use the assessment tab to generate a concise planning interpretation."
-        ]
-    })
-    st.dataframe(workflow_df, use_container_width=True)
-
-    st.markdown("### Hazard Notes Template")
-    hazard_note = st.text_area(
-        "Paste or type your hazard observations here",
-        height=180,
-        placeholder="Example: Barangay shows exposure to flooding near low-lying areas based on official hazard references..."
+    m = folium.Map(
+        location=[row["Latitude"], row["Longitude"]],
+        zoom_start=13,
+        tiles=tiles
     )
 
-# =========================================================
-# TAB 3 - ASSESSMENT & EXPORT
-# =========================================================
-with tab3:
-    st.subheader("AI-Assisted Area Assessment")
+    # Barangay marker
+    folium.Marker(
+        location=[row["Latitude"], row["Longitude"]],
+        popup=f"{selected_barangay}<br>Population: {int(row['Population_2020']):,}",
+        tooltip=selected_barangay,
+        icon=folium.Icon(color="darkgreen", icon="info-sign")
+    ).add_to(m)
 
-    area_row = barangay_data[barangay_data["Barangay"] == selected_barangay].iloc[0]
+    # Theme layer simulation
+    theme_color = hazard_info[selected_theme]["color"]
+
+    folium.Circle(
+        location=[row["Latitude"], row["Longitude"]],
+        radius=1300,
+        color=theme_color,
+        fill=True,
+        fill_opacity=0.22,
+        popup=selected_theme
+    ).add_to(m)
+
+    # Nearby barangays
+    for _, r in barangay_data.iterrows():
+        folium.CircleMarker(
+            location=[r["Latitude"], r["Longitude"]],
+            radius=5,
+            popup=f"{r['Barangay']}<br>Population: {int(r['Population_2020']):,}",
+            color="#184d3b",
+            fill=True,
+            fill_color="#184d3b",
+            fill_opacity=0.75
+        ).add_to(m)
+
+    st_folium(m, width=None, height=520)
+
+    mc1, mc2 = st.columns([1.25, 1])
+
+    with mc1:
+        st.markdown("### Map Interpretation")
+        st.markdown(f"""
+        <div class="custom-card">
+        <b>Selected Barangay:</b> {selected_barangay}<br>
+        <b>Map Theme:</b> {selected_theme}<br>
+        <b>Description:</b> {hazard_info[selected_theme]["description"]}
+        </div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("### Technical Use")
+        st.markdown("""
+        <div class="custom-card">
+        This map studio is intended as a research and planning workspace where a user can:
+        <ul>
+            <li>locate a barangay</li>
+            <li>view a thematic hazard or reference mode</li>
+            <li>relate demographic conditions with spatial context</li>
+            <li>prepare a cleaner basis for thesis mapping and planning interpretation</li>
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+    with mc2:
+        st.markdown("### Layer Guide")
+        st.markdown(f"""
+        <div class="legend-box"><b>{selected_theme}</b><br>{hazard_info[selected_theme]["description"]}</div>
+        <div class="legend-box"><b>Barangay Reference Point</b><br>Displays encoded barangay reference location.</div>
+        <div class="legend-box"><b>Context Points</b><br>Shows nearby selected barangays for comparative context.</div>
+        """, unsafe_allow_html=True)
+
+        st.markdown("### Future Layer Expansion")
+        st.markdown("""
+        <div class="custom-card">
+        The next development stage may connect verified external map services for:
+        <ul>
+            <li>flood hazard</li>
+            <li>rain-induced landslide</li>
+            <li>storm surge</li>
+            <li>topographic and terrain references</li>
+            <li>other technical geospatial layers</li>
+        </ul>
+        </div>
+        """, unsafe_allow_html=True)
+
+# -------------------------------------------------
+# TAB 3 - ASSESSMENT TOOL
+# -------------------------------------------------
+with tab3:
+    st.subheader("AI-Assisted Assessment Tool")
+
+    row = barangay_data[barangay_data["Barangay"] == selected_barangay].iloc[0]
 
     col1, col2 = st.columns(2)
+
     with col1:
-        barangay = st.selectbox("Select Barangay", barangay_data["Barangay"].tolist(),
-                                index=barangay_data["Barangay"].tolist().index(selected_barangay))
-        flood = st.selectbox("Flood Risk Level", ["Low", "Medium", "High"])
+        flood = st.selectbox("Flood Exposure", ["Low", "Moderate", "High"])
         waste = st.selectbox("Waste Management Condition", ["Good", "Fair", "Poor"])
 
     with col2:
         drainage = st.selectbox("Drainage Condition", ["Good", "Fair", "Poor"])
-        exposure = st.selectbox("Population Exposure", ["Low", "Medium", "High"])
+        exposure = st.selectbox("Population Exposure", ["Low", "Moderate", "High"])
 
-    def analyze_risk(flood, waste, drainage, exposure, track):
-        flood_score = 3 if flood == "High" else 2 if flood == "Medium" else 1
-        waste_score = 3 if waste == "Poor" else 2 if waste == "Fair" else 1
-        drainage_score = 3 if drainage == "Poor" else 2 if drainage == "Fair" else 1
-        exposure_score = 3 if exposure == "High" else 2 if exposure == "Medium" else 1
+    def score_value(v):
+        mapping = {
+            "Low": 1, "Good": 1,
+            "Moderate": 2, "Fair": 2,
+            "High": 3, "Poor": 3
+        }
+        return mapping[v]
 
-        score = flood_score + waste_score + drainage_score + exposure_score
+    if st.button("Generate Assessment"):
+        flood_score = score_value(flood)
+        waste_score = score_value(waste)
+        drainage_score = score_value(drainage)
+        exposure_score = score_value(exposure)
 
-        if score >= 10:
+        total_score = flood_score + waste_score + drainage_score + exposure_score
+
+        if total_score >= 10:
             level = "HIGH"
-        elif score >= 7:
+            interpretation = "This barangay requires immediate intervention and stronger planning control."
+        elif total_score >= 7:
             level = "MODERATE"
+            interpretation = "This barangay requires preventive action, monitoring, and planning attention."
         else:
             level = "LOW"
+            interpretation = "This barangay is relatively stable but still requires regular monitoring."
 
         recommendations = []
 
-        if track in ["Integrated", "DRRM"]:
-            if flood in ["Medium", "High"]:
-                recommendations.append("Strengthen disaster preparedness, evacuation planning, and early warning measures.")
+        if planning_focus in ["Integrated", "DRRM"]:
+            if flood in ["Moderate", "High"]:
+                recommendations.append("Strengthen flood preparedness and community response planning.")
             if drainage == "Poor":
-                recommendations.append("Prioritize drainage clearing, desilting, and flood-control interventions.")
+                recommendations.append("Prioritize drainage rehabilitation and localized flood mitigation.")
             if exposure == "High":
-                recommendations.append("Prioritize high-exposure households for preparedness and response coordination.")
+                recommendations.append("Focus on highly exposed households for early warning and response coordination.")
 
-        if track in ["Integrated", "Circular Economy"]:
+        if planning_focus in ["Integrated", "Circular Economy"]:
             if waste in ["Fair", "Poor"]:
-                recommendations.append("Improve segregation at source and strengthen barangay-level Materials Recovery Facility operations.")
-            if flood == "High" and waste == "Poor":
-                recommendations.append("Integrate flood mitigation and waste management to reduce blockage of waterways and drainage lines.")
-            recommendations.append("Promote recovery, reuse, and diversion strategies consistent with circular economy action.")
+                recommendations.append("Improve segregation at source and strengthen barangay-level recovery systems.")
+            recommendations.append("Promote circular economy actions through reuse, diversion, and community waste reduction.")
 
-        if not recommendations:
-            recommendations.append("Maintain current systems and continue monitoring.")
-
-        chart_data = pd.DataFrame({
+        chart_df = pd.DataFrame({
             "Factor": ["Flood", "Waste", "Drainage", "Exposure"],
             "Score": [flood_score, waste_score, drainage_score, exposure_score]
         })
 
-        return level, score, recommendations, chart_data
-
-    if st.button("Analyze Area"):
-        level, score, recommendations, chart_data = analyze_risk(flood, waste, drainage, exposure, track)
-
-        st.markdown("---")
-        st.subheader(f"Assessment Result for {barangay}")
-
         r1, r2, r3, r4 = st.columns(4)
-        r1.metric("Risk Score", score)
-        r2.metric("Planning Focus", track)
-        r3.metric("Population 2020", f"{int(area_row['Population_2020']):,}")
-        r4.metric("Growth Rate (%)", f"{area_row['Growth_Rate']:.2f}")
-
-        if level == "HIGH":
-            st.error(f"Risk Level: {level}")
-            interpretation = "This area requires immediate intervention and priority planning action."
-        elif level == "MODERATE":
-            st.warning(f"Risk Level: {level}")
-            interpretation = "This area requires preventive action, preparedness improvements, and regular monitoring."
-        else:
-            st.success(f"Risk Level: {level}")
-            interpretation = "This area is relatively stable but should continue routine monitoring and maintenance."
+        r1.metric("Risk Score", total_score)
+        r2.metric("Risk Level", level)
+        r3.metric("Population 2020", f"{int(row['Population_2020']):,}")
+        r4.metric("Growth Rate (%)", f"{row['Growth_Rate']:.2f}")
 
         left, right = st.columns([1.2, 1])
 
         with left:
-            st.markdown("### Interpretation")
+            st.markdown("### Assessment Interpretation")
             st.markdown(f"<div class='custom-card'>{interpretation}</div>", unsafe_allow_html=True)
 
             st.markdown("### Recommended Actions")
@@ -371,58 +417,109 @@ with tab3:
             st.markdown(rec_html, unsafe_allow_html=True)
 
             planning_summary = (
-                f"For {barangay}, the combined conditions of hazard exposure, drainage condition, "
-                f"waste management status, and population vulnerability indicate a {level.lower()} "
-                f"level of concern. These actions support both resilience planning and resource-efficiency measures."
+                f"{selected_barangay} shows a {level.lower()} level of planning concern based on flood exposure, "
+                f"waste condition, drainage condition, and population exposure. The results support {planning_focus.lower()} "
+                f"planning actions for local resilience and resource efficiency."
             )
+
             st.markdown("### Planning Summary")
             st.info(planning_summary)
 
-            if hazard_note:
-                st.markdown("### User Hazard Notes")
-                st.markdown(f"<div class='custom-card'>{hazard_note}</div>", unsafe_allow_html=True)
+            export_df = pd.DataFrame({
+                "Field": [
+                    "Barangay", "Population 2020", "Growth Rate (%)", "Map Theme",
+                    "Planning Focus", "Flood Exposure", "Waste Condition",
+                    "Drainage Condition", "Population Exposure", "Risk Score", "Risk Level"
+                ],
+                "Value": [
+                    selected_barangay, int(row["Population_2020"]), row["Growth_Rate"], selected_theme,
+                    planning_focus, flood, waste, drainage, exposure, total_score, level
+                ]
+            })
+
+            st.download_button(
+                label="Download Assessment CSV",
+                data=export_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"{selected_barangay.lower().replace(' ', '_')}_assessment.csv",
+                mime="text/csv"
+            )
 
         with right:
-            st.markdown("### Risk Factor Breakdown")
-            st.bar_chart(chart_data.set_index("Factor"))
+            st.markdown("### Factor Breakdown")
+            st.bar_chart(chart_df.set_index("Factor"))
 
-        export_df = pd.DataFrame({
-            "Field": [
-                "Barangay", "Population 2020", "Growth Rate (%)", "Planning Focus",
-                "Flood Risk", "Waste Condition", "Drainage Condition", "Population Exposure",
-                "Risk Score", "Risk Level", "Planning Summary"
-            ],
-            "Value": [
-                barangay,
-                int(area_row["Population_2020"]),
-                area_row["Growth_Rate"],
-                track,
-                flood,
-                waste,
-                drainage,
-                exposure,
-                score,
-                level,
-                planning_summary
-            ]
-        })
+# -------------------------------------------------
+# TAB 4 - THESIS MAP TEMPLATE
+# -------------------------------------------------
+with tab4:
+    st.subheader("Thesis Map Template Panel")
 
-        st.markdown("### Download Output")
-        st.download_button(
-            label="Download assessment as CSV",
-            data=export_df.to_csv(index=False).encode("utf-8"),
-            file_name=f"{barangay.lower().replace(' ', '_')}_assessment.csv",
-            mime="text/csv"
-        )
+    row = barangay_data[barangay_data["Barangay"] == selected_barangay].iloc[0]
 
-# -----------------------------
-# SOURCE NOTE
-# -----------------------------
+    st.markdown(f"""
+    <div class="title-block">
+        <div class="north-arrow">↑ N</div>
+        <h3 style="margin-top:0.2rem;">Map Title</h3>
+        <p><b>{selected_theme} Map of {selected_barangay}, Butuan City</b></p>
+        <p><b>Description:</b> This map presents the selected barangay in relation to the chosen thematic reference layer for research, planning, and academic interpretation.</p>
+        <p><b>Location:</b> {selected_barangay}, Butuan City, Caraga Region</p>
+        <p><b>Reference Coordinates:</b> {row['Latitude']}, {row['Longitude']}</p>
+        <p><b>Population (2020):</b> {int(row['Population_2020']):,}</p>
+        <p><b>Legend:</b> Barangay reference point, thematic area of interest, nearby barangay context points</p>
+        <p><b>Suggested Sources:</b> City demographic profile, barangay reference data, official hazard and geospatial agencies</p>
+    </div>
+    """, unsafe_allow_html=True)
+
+    map_caption = (
+        f"Figure X. {selected_theme} map of {selected_barangay}, Butuan City, showing the selected barangay "
+        f"in relation to thematic planning and hazard reference context for academic and research use."
+    )
+
+    source_note = (
+        "Source: Prepared by the researcher using encoded barangay reference data and thematic planning visualization. "
+        "Official hazard and geospatial validation should be cross-checked with authorized government sources."
+    )
+
+    description_text = (
+        f"The map highlights {selected_barangay} as the selected study area under the {selected_theme.lower()} mode. "
+        f"It is intended to support preliminary spatial interpretation, demographic contextualization, and thesis presentation formatting."
+    )
+
+    st.markdown("### Copy-Ready Thesis Caption")
+    st.code(map_caption, language="text")
+
+    st.markdown("### Copy-Ready Source Note")
+    st.code(source_note, language="text")
+
+    st.markdown("### Copy-Ready Description")
+    st.code(description_text, language="text")
+
+    thesis_export = pd.DataFrame({
+        "Section": ["Map Title", "Caption", "Source Note", "Description"],
+        "Content": [
+            f"{selected_theme} Map of {selected_barangay}, Butuan City",
+            map_caption,
+            source_note,
+            description_text
+        ]
+    })
+
+    st.download_button(
+        label="Download Thesis Map Notes CSV",
+        data=thesis_export.to_csv(index=False).encode("utf-8"),
+        file_name=f"{selected_barangay.lower().replace(' ', '_')}_thesis_map_notes.csv",
+        mime="text/csv"
+    )
+
+# -------------------------------------------------
+# FOOTER
+# -------------------------------------------------
 st.markdown("---")
 st.markdown("""
 <div class="custom-card small-note">
-<b>Source note:</b> This prototype uses encoded Butuan demographic/profile values for presentation and demonstration.
-Official hazard-reference platforms linked in the site include Project NOAH, HazardHunterPH, MGB, NAMRIA, and GeoRiskPH.
-Students and researchers should verify hazard findings directly from the official sources before formal use.
+<b>Prototype note:</b> This version is a planning and research-oriented dashboard prototype.
+It organizes barangay profile data, thematic map viewing, assessment logic, and thesis-ready formatting
+into one workflow. Official live hazard layers may be integrated later once verified external geospatial services
+and reusable map endpoints are confirmed.
 </div>
 """, unsafe_allow_html=True)
