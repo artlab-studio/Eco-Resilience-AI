@@ -5,3 +5,7 @@ folium
 streamlit-folium
 matplotlib
 contextily
+geopandas
+shapely
+fiona
+pyproj
