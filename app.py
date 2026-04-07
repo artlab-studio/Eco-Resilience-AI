@@ -53,14 +53,6 @@ h1, h2, h3 {{
     box-shadow: 0 8px 22px rgba(0,0,0,0.10);
 }}
 
-.legend-box {{
-    background: rgba(255,255,255,0.94);
-    border-left: 5px solid #184d3b;
-    border-radius: 12px;
-    padding: 12px 15px;
-    margin-bottom: 10px;
-}}
-
 .small-note {{
     font-size: 0.9rem;
     color: #4b5d56;
@@ -70,6 +62,9 @@ h1, h2, h3 {{
 
 # -------------------------------------------------
 # DATA
+# City-level values aligned with PhilAtlas / CityPopulation reference pages
+# Barangay population values aligned with CityPopulation page
+# NOTE: Coordinates below are STILL APPROXIMATE DEMO POINTS, not official barangay boundaries.
 # -------------------------------------------------
 city_profile = {
     "City": "Butuan City",
@@ -77,6 +72,7 @@ city_profile = {
     "Type": "Highly Urbanized City",
     "Barangays": 86,
     "Population_2020": 372910,
+    "Population_2024": 385530,
     "Land_Area_km2": 816.62,
     "Density_per_km2": 457,
     "Latitude": 8.9534,
@@ -84,14 +80,16 @@ city_profile = {
 }
 
 barangay_data = pd.DataFrame([
-    {"Barangay": "Libertad", "Population_2020": 25296, "Population_2015": 21703, "Growth_Rate": 3.28, "Percent_Share": 6.78, "Latitude": 8.9500, "Longitude": 125.5170},
-    {"Barangay": "San Vicente", "Population_2020": 19500, "Population_2015": 16187, "Growth_Rate": 4.00, "Percent_Share": 5.23, "Latitude": 8.9640, "Longitude": 125.5400},
-    {"Barangay": "Baan KM 3", "Population_2020": 14539, "Population_2015": 11308, "Growth_Rate": 5.43, "Percent_Share": 3.90, "Latitude": 8.9570, "Longitude": 125.5320},
-    {"Barangay": "Ambago", "Population_2020": 13634, "Population_2015": 12656, "Growth_Rate": 1.58, "Percent_Share": 3.66, "Latitude": 8.9430, "Longitude": 125.5340},
-    {"Barangay": "Ampayon", "Population_2020": 13820, "Population_2015": 12720, "Growth_Rate": 1.76, "Percent_Share": 3.71, "Latitude": 8.9700, "Longitude": 125.5600},
-    {"Barangay": "Doongan", "Population_2020": 13814, "Population_2015": 13728, "Growth_Rate": 0.13, "Percent_Share": 3.70, "Latitude": 8.9420, "Longitude": 125.5510},
-    {"Barangay": "Obrero Poblacion", "Population_2020": 8643, "Population_2015": 9774, "Growth_Rate": -2.56, "Percent_Share": 2.32, "Latitude": 8.9490, "Longitude": 125.5430},
+    {"Barangay": "Ambago", "Population_2015": 12656, "Population_2020": 13634, "Population_2024": 15523, "Growth_Rate": 1.58, "Latitude": 8.9430, "Longitude": 125.5340},
+    {"Barangay": "Ampayon", "Population_2015": 12720, "Population_2020": 13820, "Population_2024": 13872, "Growth_Rate": 1.76, "Latitude": 8.9700, "Longitude": 125.5600},
+    {"Barangay": "Baan KM 3", "Population_2015": 11308, "Population_2020": 14539, "Population_2024": 15066, "Growth_Rate": 5.43, "Latitude": 8.9570, "Longitude": 125.5320},
+    {"Barangay": "Doongan", "Population_2015": 13728, "Population_2020": 13814, "Population_2024": 14591, "Growth_Rate": 0.13, "Latitude": 8.9420, "Longitude": 125.5510},
+    {"Barangay": "Libertad", "Population_2015": 21703, "Population_2020": 25296, "Population_2024": 24880, "Growth_Rate": 3.28, "Latitude": 8.9500, "Longitude": 125.5170},
+    {"Barangay": "Obrero (Barangay 18)", "Population_2015": 9774, "Population_2020": 8643, "Population_2024": 8505, "Growth_Rate": -2.56, "Latitude": 8.9490, "Longitude": 125.5430},
+    {"Barangay": "San Vicente", "Population_2015": 16187, "Population_2020": 19500, "Population_2024": 20369, "Growth_Rate": 4.00, "Latitude": 8.9640, "Longitude": 125.5400},
 ])
+
+barangay_data["Pop_Change_2020_2024"] = barangay_data["Population_2024"] - barangay_data["Population_2020"]
 
 hazard_info = {
     "Flood Hazard": {
@@ -113,6 +111,10 @@ hazard_info = {
     "Integrated Risk View": {
         "color": "#c53030",
         "description": "Combined planning risk reference."
+    },
+    "Population Map": {
+        "color": "#1f4d3b",
+        "description": "Population-based reference view using selected barangay population values."
     }
 }
 
@@ -154,21 +156,20 @@ st.markdown("""
     <h1 style="color:white; margin-bottom:0.3rem;">Eco-Resilience AI Platform</h1>
     <p style="font-size:1.05rem; margin-bottom:0;">
     A decision-support and research-assist website for DRRM, circular economy, demographic profiling,
-    barangay mapping, and thesis-ready planning outputs.
+    barangay mapping, population analysis, and thesis-ready planning outputs.
     </p>
 </div>
 """, unsafe_allow_html=True)
 
 st.markdown("""
 <div class="custom-card">
-This prototype is designed to help students, researchers, planners, and local governments work with
-fragmented spatial and planning information in one place. It combines barangay profile data, map viewing,
-hazard-theme switching, assessment tools, and thesis-oriented output structure.
+This version adds barangay population profiling and a population-oriented map generator.
+However, barangay plotting is still approximate until a real Butuan barangay boundary or centroid file is used.
 </div>
 """, unsafe_allow_html=True)
 
 # -------------------------------------------------
-# HELPER FUNCTIONS
+# HELPERS
 # -------------------------------------------------
 def get_folium_tiles(choice):
     if choice == "OpenStreetMap":
@@ -199,38 +200,53 @@ def generate_map_layout(selected_barangay, selected_theme, basemap_for_plate):
     theme_color = hazard_info[selected_theme]["color"]
     basemap_source = get_contextily_provider(basemap_for_plate)
 
-    fig = plt.figure(figsize=(11.69, 8.27))  # A4 Landscape
+    fig = plt.figure(figsize=(11.69, 8.27))
     ax = fig.add_axes([0.06, 0.18, 0.62, 0.72])
     info_ax = fig.add_axes([0.72, 0.18, 0.24, 0.72])
 
-    ax.scatter(
-        barangay_data["Longitude"],
-        barangay_data["Latitude"],
-        s=60,
-        edgecolors="#184d3b",
-        facecolors="white",
-        linewidths=1.2,
-        zorder=3
-    )
+    # point size varies if population map selected
+    if selected_theme == "Population Map":
+        sizes = barangay_data["Population_2024"] / 70
+        ax.scatter(
+            barangay_data["Longitude"],
+            barangay_data["Latitude"],
+            s=sizes,
+            edgecolors="#184d3b",
+            facecolors="#9fd3c7",
+            linewidths=1.0,
+            alpha=0.85,
+            zorder=3
+        )
+    else:
+        ax.scatter(
+            barangay_data["Longitude"],
+            barangay_data["Latitude"],
+            s=60,
+            edgecolors="#184d3b",
+            facecolors="white",
+            linewidths=1.2,
+            zorder=3
+        )
 
     ax.scatter(
         selected_row["Longitude"],
         selected_row["Latitude"],
-        s=260,
+        s=280,
         color=theme_color,
         edgecolors="black",
         linewidths=1.2,
         zorder=5
     )
 
-    thematic_circle = plt.Circle(
-        (selected_row["Longitude"], selected_row["Latitude"]),
-        0.010,
-        color=theme_color,
-        alpha=0.20,
-        zorder=2
-    )
-    ax.add_patch(thematic_circle)
+    if selected_theme != "Population Map":
+        thematic_circle = plt.Circle(
+            (selected_row["Longitude"], selected_row["Latitude"]),
+            0.010,
+            color=theme_color,
+            alpha=0.20,
+            zorder=2
+        )
+        ax.add_patch(thematic_circle)
 
     for _, row in barangay_data.iterrows():
         ax.text(
@@ -250,12 +266,7 @@ def generate_map_layout(selected_barangay, selected_theme, basemap_for_plate):
     ax.set_ylim(ymin, ymax)
 
     try:
-        ctx.add_basemap(
-            ax,
-            crs="EPSG:4326",
-            source=basemap_source,
-            alpha=0.85
-        )
+        ctx.add_basemap(ax, crs="EPSG:4326", source=basemap_source, alpha=0.85)
     except Exception:
         ax.set_facecolor("#f7fafc")
 
@@ -275,10 +286,10 @@ def generate_map_layout(selected_barangay, selected_theme, basemap_for_plate):
 
     ax.text(
         0.02, 0.02,
-        "Approximate map context only",
+        "Approximate plotting only until real barangay geometry is added",
         transform=ax.transAxes,
         fontsize=8,
-        bbox=dict(facecolor="white", alpha=0.8, edgecolor="gray")
+        bbox=dict(facecolor="white", alpha=0.85, edgecolor="gray")
     )
 
     info_ax.axis("off")
@@ -287,65 +298,69 @@ def generate_map_layout(selected_barangay, selected_theme, basemap_for_plate):
     info_text = (
         f"MAP TITLE:\n{selected_theme} Map of\n{selected_barangay}, Butuan City\n\n"
         f"BARANGAY:\n{selected_barangay}\n\n"
-        f"POPULATION (2020):\n{int(selected_row['Population_2020']):,}\n\n"
-        f"GROWTH RATE:\n{selected_row['Growth_Rate']:.2f}%\n\n"
+        f"POPULATION 2020:\n{int(selected_row['Population_2020']):,}\n\n"
+        f"POPULATION 2024:\n{int(selected_row['Population_2024']):,}\n\n"
+        f"CHANGE 2020-2024:\n{int(selected_row['Pop_Change_2020_2024']):,}\n\n"
         f"BASEMAP:\n{basemap_for_plate}\n\n"
         f"DESCRIPTION:\n{hazard_info[selected_theme]['description']}\n\n"
-        f"LEGEND:\n"
-        f"● Selected Barangay / Theme\n"
-        f"○ Nearby Barangays\n"
-        f"◌ Thematic Extent\n\n"
-        f"SOURCE NOTE:\nPrepared by the researcher using\nencoded barangay reference data\nwith web basemap support for\nacademic demonstration.\nOfficial hazard validation should\nbe verified with authorized agencies."
+        f"SOURCE NOTE:\nPopulation values adapted from\nCityPopulation reference data.\nSpatial plotting remains approximate\nuntil verified barangay geometry\nis supplied."
     )
     info_ax.text(0.05, 0.95, info_text, va="top", fontsize=9)
 
     legend_elements = [
-        Patch(facecolor=theme_color, edgecolor='black', label='Selected Barangay / Theme'),
-        Patch(facecolor='white', edgecolor='#184d3b', label='Nearby Barangays')
+        Patch(facecolor=theme_color, edgecolor='black', label='Selected Barangay')
     ]
     ax.legend(handles=legend_elements, loc="lower left", fontsize=8, frameon=True)
 
     fig.text(0.06, 0.07, "Prepared through Eco-Resilience AI Platform", fontsize=9, weight="bold")
-    fig.text(0.06, 0.045, "Map use: preliminary research, thesis illustration, and planning presentation", fontsize=8)
-    fig.text(0.06, 0.02, "Note: Hazard themes shown here are prototype overlays unless validated with official datasets.", fontsize=8)
+    fig.text(0.06, 0.045, "Population values based on CityPopulation reference data", fontsize=8)
+    fig.text(0.06, 0.02, "Important: map location remains approximate until real barangay geometry is loaded.", fontsize=8)
 
     return fig
 
 # -------------------------------------------------
 # TABS
 # -------------------------------------------------
-tab1, tab2, tab3, tab4 = st.tabs([
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Overview",
+    "Population Profile",
     "Map Studio",
     "Assessment Tool",
     "Map Generator"
 ])
 
 # -------------------------------------------------
-# TAB 1 - OVERVIEW
+# TAB 1
 # -------------------------------------------------
 with tab1:
     st.subheader("Butuan City Profile")
 
     c1, c2, c3, c4 = st.columns(4)
     c1.metric("Population (2020)", f"{city_profile['Population_2020']:,}")
-    c2.metric("Land Area (km²)", f"{city_profile['Land_Area_km2']:.2f}")
-    c3.metric("Density / km²", f"{city_profile['Density_per_km2']}")
+    c2.metric("Population (2024)", f"{city_profile['Population_2024']:,}")
+    c3.metric("Land Area (km²)", f"{city_profile['Land_Area_km2']:.2f}")
     c4.metric("Barangays", f"{city_profile['Barangays']}")
 
-    st.markdown(f"""
+    st.markdown("""
     <div class="custom-card">
-    <b>Urban Context:</b> {city_profile['City']} is a {city_profile['Type']} in {city_profile['Region']}.
-    This dashboard uses Butuan-focused demographic and spatial reference content to support academic and planning workflows.
+    This dashboard combines Butuan city profile values with selected barangay population values.
+    It is useful for demographic comparison and thesis presentation, but spatial accuracy still depends
+    on loading real barangay GIS data.
     </div>
     """, unsafe_allow_html=True)
 
+# -------------------------------------------------
+# TAB 2
+# -------------------------------------------------
+with tab2:
+    st.subheader("Barangay Population Profile")
+
     display_df = barangay_data[[
-        "Barangay", "Population_2020", "Population_2015", "Growth_Rate", "Percent_Share"
+        "Barangay", "Population_2015", "Population_2020", "Population_2024", "Pop_Change_2020_2024", "Growth_Rate"
     ]].copy()
 
     display_df.columns = [
-        "Barangay", "Population 2020", "Population 2015", "Annual Growth Rate (%)", "Population Share (%)"
+        "Barangay", "Population 2015", "Population 2020", "Population 2024", "Change 2020-2024", "Annual Growth Rate (%)"
     ]
 
     st.dataframe(display_df, use_container_width=True)
@@ -353,27 +368,27 @@ with tab1:
     col_a, col_b = st.columns(2)
 
     with col_a:
-        st.markdown("### Population by Selected Barangays")
+        st.markdown("### Population 2024 by Barangay")
         pop_chart = alt.Chart(barangay_data).mark_bar().encode(
-            x=alt.X("Population_2020:Q", title="Population (2020)"),
+            x=alt.X("Population_2024:Q", title="Population (2024)"),
             y=alt.Y("Barangay:N", sort="-x", title="Barangay"),
-            tooltip=["Barangay", "Population_2020", "Growth_Rate", "Percent_Share"]
-        ).properties(height=360)
+            tooltip=["Barangay", "Population_2015", "Population_2020", "Population_2024", "Pop_Change_2020_2024"]
+        ).properties(height=380)
         st.altair_chart(pop_chart, use_container_width=True)
 
     with col_b:
-        st.markdown("### Population Share")
-        share_chart = alt.Chart(barangay_data).mark_arc(innerRadius=70).encode(
-            theta=alt.Theta(field="Percent_Share", type="quantitative"),
-            color=alt.Color(field="Barangay", type="nominal"),
-            tooltip=["Barangay", "Percent_Share", "Population_2020"]
-        ).properties(height=360)
-        st.altair_chart(share_chart, use_container_width=True)
+        st.markdown("### Change from 2020 to 2024")
+        change_chart = alt.Chart(barangay_data).mark_bar().encode(
+            x=alt.X("Pop_Change_2020_2024:Q", title="Population Change"),
+            y=alt.Y("Barangay:N", sort="-x", title="Barangay"),
+            tooltip=["Barangay", "Population_2020", "Population_2024", "Pop_Change_2020_2024"]
+        ).properties(height=380)
+        st.altair_chart(change_chart, use_container_width=True)
 
 # -------------------------------------------------
-# TAB 2 - MAP STUDIO
+# TAB 3
 # -------------------------------------------------
-with tab2:
+with tab3:
     st.subheader("Interactive Map Studio")
 
     row = barangay_data[barangay_data["Barangay"] == selected_barangay].iloc[0]
@@ -385,46 +400,40 @@ with tab2:
         tiles=get_folium_tiles(basemap_choice)
     )
 
+    # population-based scaling in interactive map
+    for _, r in barangay_data.iterrows():
+        radius = max(4, r["Population_2024"] / 3000)
+        folium.CircleMarker(
+            location=[r["Latitude"], r["Longitude"]],
+            radius=radius,
+            color="#184d3b",
+            fill=True,
+            fill_color="#7bc8b6",
+            fill_opacity=0.75,
+            popup=f"{r['Barangay']}<br>2024 Population: {int(r['Population_2024']):,}"
+        ).add_to(m)
+
     folium.Marker(
         location=[row["Latitude"], row["Longitude"]],
-        popup=f"{selected_barangay}<br>Population: {int(row['Population_2020']):,}",
+        popup=f"{selected_barangay}<br>2024 Population: {int(row['Population_2024']):,}",
         tooltip=selected_barangay,
         icon=folium.Icon(color="darkgreen", icon="info-sign")
     ).add_to(m)
-
-    folium.Circle(
-        location=[row["Latitude"], row["Longitude"]],
-        radius=1200,
-        color=theme_color,
-        fill=True,
-        fill_opacity=0.25,
-        popup=selected_theme
-    ).add_to(m)
-
-    for _, r in barangay_data.iterrows():
-        folium.CircleMarker(
-            location=[r["Latitude"], r["Longitude"]],
-            radius=4,
-            color="#184d3b",
-            fill=True,
-            fill_color="#184d3b",
-            popup=r["Barangay"]
-        ).add_to(m)
 
     st_folium(m, height=520, width=None)
 
     st.markdown(f"""
     <div class="custom-card">
     <b>Selected Theme:</b> {selected_theme}<br>
-    <b>Description:</b> {hazard_info[selected_theme]['description']}<br>
-    <b>Basemap:</b> {basemap_choice}
+    <b>Selected Barangay:</b> {selected_barangay}<br>
+    <b>Important:</b> Current barangay locations are still approximate reference points only.
     </div>
     """, unsafe_allow_html=True)
 
 # -------------------------------------------------
-# TAB 3 - ASSESSMENT TOOL
+# TAB 4
 # -------------------------------------------------
-with tab3:
+with tab4:
     st.subheader("AI-Assisted Assessment Tool")
 
     row = barangay_data[barangay_data["Barangay"] == selected_barangay].iloc[0]
@@ -444,98 +453,22 @@ with tab3:
         exposure_score = score_value(exposure)
 
         total_score = flood_score + waste_score + drainage_score + exposure_score
+        level = "HIGH" if total_score >= 10 else "MODERATE" if total_score >= 7 else "LOW"
 
-        if total_score >= 10:
-            level = "HIGH"
-            interpretation = "This barangay requires immediate intervention and stronger planning control."
-        elif total_score >= 7:
-            level = "MODERATE"
-            interpretation = "This barangay requires preventive action, monitoring, and planning attention."
-        else:
-            level = "LOW"
-            interpretation = "This barangay is relatively stable but still requires regular monitoring."
-
-        recommendations = []
-
-        if planning_focus in ["Integrated", "DRRM"]:
-            if flood in ["Moderate", "High"]:
-                recommendations.append("Strengthen flood preparedness and community response planning.")
-            if drainage == "Poor":
-                recommendations.append("Prioritize drainage rehabilitation and localized flood mitigation.")
-            if exposure == "High":
-                recommendations.append("Focus on highly exposed households for early warning and response coordination.")
-
-        if planning_focus in ["Integrated", "Circular Economy"]:
-            if waste in ["Fair", "Poor"]:
-                recommendations.append("Improve segregation at source and strengthen barangay-level recovery systems.")
-            recommendations.append("Promote circular economy actions through reuse, diversion, and community waste reduction.")
-
-        if not recommendations:
-            recommendations.append("Maintain current systems and continue monitoring.")
-
-        chart_df = pd.DataFrame({
-            "Factor": ["Flood", "Waste", "Drainage", "Exposure"],
-            "Score": [flood_score, waste_score, drainage_score, exposure_score]
-        })
-
-        r1, r2, r3, r4 = st.columns(4)
-        r1.metric("Risk Score", total_score)
-        r2.metric("Risk Level", level)
-        r3.metric("Population 2020", f"{int(row['Population_2020']):,}")
-        r4.metric("Growth Rate (%)", f"{row['Growth_Rate']:.2f}")
-
-        left, right = st.columns([1.2, 1])
-
-        with left:
-            st.markdown("### Assessment Interpretation")
-            st.markdown(f"<div class='custom-card'>{interpretation}</div>", unsafe_allow_html=True)
-
-            st.markdown("### Recommended Actions")
-            rec_html = "<div class='custom-card'>" + "".join([f"<p>• {r}</p>" for r in recommendations]) + "</div>"
-            st.markdown(rec_html, unsafe_allow_html=True)
-
-            planning_summary = (
-                f"{selected_barangay} shows a {level.lower()} level of planning concern based on flood exposure, "
-                f"waste condition, drainage condition, and population exposure. The results support {planning_focus.lower()} "
-                f"planning actions for local resilience and resource efficiency."
-            )
-
-            st.markdown("### Planning Summary")
-            st.info(planning_summary)
-
-            export_df = pd.DataFrame({
-                "Field": [
-                    "Barangay", "Population 2020", "Growth Rate (%)", "Map Theme",
-                    "Planning Focus", "Flood Exposure", "Waste Condition",
-                    "Drainage Condition", "Population Exposure", "Risk Score", "Risk Level"
-                ],
-                "Value": [
-                    selected_barangay, int(row["Population_2020"]), row["Growth_Rate"], selected_theme,
-                    planning_focus, flood, waste, drainage, exposure, total_score, level
-                ]
-            })
-
-            st.download_button(
-                label="Download Assessment CSV",
-                data=export_df.to_csv(index=False).encode("utf-8"),
-                file_name=f"{selected_barangay.lower().replace(' ', '_')}_assessment.csv",
-                mime="text/csv"
-            )
-
-        with right:
-            st.markdown("### Factor Breakdown")
-            st.bar_chart(chart_df.set_index("Factor"))
+        st.metric("Risk Score", total_score)
+        st.metric("Risk Level", level)
+        st.metric("Population 2024", f"{int(row['Population_2024']):,}")
 
 # -------------------------------------------------
-# TAB 4 - MAP GENERATOR
+# TAB 5
 # -------------------------------------------------
-with tab4:
+with tab5:
     st.subheader("Thesis-Ready Map Generator")
 
     st.markdown("""
     <div class="custom-card">
-    This tool generates a downloadable map layout with title, legend, north arrow, source note,
-    and highlighted barangay context. It now includes a real basemap background for a more complete thesis-ready plate.
+    This generates a downloadable map plate using available population values and a real basemap.
+    Spatial placement is still approximate until a verified Butuan barangay boundary or centroid dataset is loaded.
     </div>
     """, unsafe_allow_html=True)
 
@@ -559,13 +492,13 @@ with tab4:
 
     st.markdown("### Copy-Ready Thesis Caption")
     st.code(
-        f"Figure X. {selected_theme} map of {selected_barangay}, Butuan City, showing the selected barangay in relation to nearby barangay context and thematic research reference.",
+        f"Figure X. {selected_theme} map of {selected_barangay}, Butuan City, with population-based reference and approximate barangay plotting for preliminary academic use.",
         language="text"
     )
 
     st.markdown("### Copy-Ready Source Note")
     st.code(
-        f"Source: Prepared by the researcher using encoded barangay reference data through the Eco-Resilience AI Platform with {basemap_for_plate} basemap support. Official hazard validation should be verified from authorized government agencies.",
+        "Source: Prepared by the researcher using CityPopulation demographic reference data and prototype spatial plotting through the Eco-Resilience AI Platform. Verified barangay GIS geometry is required for accurate spatial output.",
         language="text"
     )
 
@@ -575,7 +508,7 @@ with tab4:
 st.markdown("---")
 st.markdown("""
 <div class="custom-card small-note">
-This improved version can generate a downloadable thesis-ready map plate with a real basemap background.
-For true official hazard maps, the next step is to connect verified GIS datasets or authorized live geospatial services.
+Population values in this prototype were adapted from the CityPopulation Butuan barangay reference page.
+For accurate barangay plotting, the next required input is a real Butuan barangay boundary or centroid GIS file.
 </div>
 """, unsafe_allow_html=True)
