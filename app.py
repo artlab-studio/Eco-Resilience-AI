@@ -1,3 +1,8 @@
+import os
+import zipfile
+import tempfile
+from io import BytesIO
+
 import streamlit as st
 import pandas as pd
 import altair as alt
@@ -5,14 +10,14 @@ import folium
 from streamlit_folium import st_folium
 import matplotlib.pyplot as plt
 from matplotlib.patches import Rectangle, Patch
-from io import BytesIO
 import contextily as ctx
+import geopandas as gpd
 
 st.set_page_config(page_title="Eco-Resilience AI Platform", layout="wide")
 
-# -------------------------------------------------
+# =================================================
 # STYLE
-# -------------------------------------------------
+# =================================================
 background_image_url = "https://images.unsplash.com/photo-1500375592092-40eb2168fd21?auto=format&fit=crop&w=1600&q=80"
 
 st.markdown(f"""
@@ -60,12 +65,9 @@ h1, h2, h3 {{
 </style>
 """, unsafe_allow_html=True)
 
-# -------------------------------------------------
+# =================================================
 # DATA
-# City-level values aligned with PhilAtlas / CityPopulation reference pages
-# Barangay population values aligned with CityPopulation page
-# NOTE: Coordinates below are STILL APPROXIMATE DEMO POINTS, not official barangay boundaries.
-# -------------------------------------------------
+# =================================================
 city_profile = {
     "City": "Butuan City",
     "Region": "Caraga (Region XIII)",
@@ -79,6 +81,9 @@ city_profile = {
     "Longitude": 125.5288,
 }
 
+# NOTE:
+# These coordinates are still approximate barangay reference points.
+# They are NOT official barangay boundaries.
 barangay_data = pd.DataFrame([
     {"Barangay": "Ambago", "Population_2015": 12656, "Population_2020": 13634, "Population_2024": 15523, "Growth_Rate": 1.58, "Latitude": 8.9430, "Longitude": 125.5340},
     {"Barangay": "Ampayon", "Population_2015": 12720, "Population_2020": 13820, "Population_2024": 13872, "Growth_Rate": 1.76, "Latitude": 8.9700, "Longitude": 125.5600},
@@ -118,9 +123,9 @@ hazard_info = {
     }
 }
 
-# -------------------------------------------------
+# =================================================
 # SIDEBAR
-# -------------------------------------------------
+# =================================================
 st.sidebar.title("Research Controls")
 
 selected_barangay = st.sidebar.selectbox(
@@ -148,52 +153,110 @@ basemap_for_plate = st.sidebar.selectbox(
     ["OpenStreetMap", "CartoDB Positron", "CartoDB Voyager"]
 )
 
-# -------------------------------------------------
-# HEADER
-# -------------------------------------------------
-st.markdown("""
-<div class="hero-box">
-    <h1 style="color:white; margin-bottom:0.3rem;">Eco-Resilience AI Platform</h1>
-    <p style="font-size:1.05rem; margin-bottom:0;">
-    A decision-support and research-assist website for DRRM, circular economy, demographic profiling,
-    barangay mapping, population analysis, and thesis-ready planning outputs.
-    </p>
-</div>
-""", unsafe_allow_html=True)
+show_flood_layer = st.sidebar.toggle("Show real flood hazard layer", value=True)
 
-st.markdown("""
-<div class="custom-card">
-This version adds barangay population profiling and a population-oriented map generator.
-However, barangay plotting is still approximate until a real Butuan barangay boundary or centroid file is used.
-</div>
-""", unsafe_allow_html=True)
-
-# -------------------------------------------------
+# =================================================
 # HELPERS
-# -------------------------------------------------
-def get_folium_tiles(choice):
+# =================================================
+def get_folium_tiles(choice: str) -> str:
     if choice == "OpenStreetMap":
         return "OpenStreetMap"
     elif choice == "CartoDB Positron":
         return "CartoDB positron"
-    else:
-        return "CartoDB Voyager"
+    return "CartoDB Voyager"
 
-def get_contextily_provider(choice):
+def get_contextily_provider(choice: str):
     if choice == "OpenStreetMap":
         return ctx.providers.OpenStreetMap.Mapnik
     elif choice == "CartoDB Positron":
         return ctx.providers.CartoDB.Positron
-    else:
-        return ctx.providers.CartoDB.Voyager
+    return ctx.providers.CartoDB.Voyager
 
-def score_value(v):
+def score_value(v: str) -> int:
     mapping = {
         "Low": 1, "Good": 1,
         "Moderate": 2, "Fair": 2,
         "High": 3, "Poor": 3
     }
     return mapping[v]
+
+def safe_load_flood_shapefile(zip_path: str):
+    """
+    Loads a zipped shapefile if valid.
+    Returns: gdf, message
+    """
+    if not os.path.exists(zip_path):
+        return None, "Flood hazard ZIP not found in repo root."
+
+    try:
+        with zipfile.ZipFile(zip_path, "r") as zf:
+            tmpdir = tempfile.mkdtemp()
+            zf.extractall(tmpdir)
+
+        shp_files = []
+        for root, _, files in os.walk(tmpdir):
+            for f in files:
+                if f.lower().endswith(".shp"):
+                    shp_files.append(os.path.join(root, f))
+
+        if not shp_files:
+            return None, "ZIP loaded, but no .shp file was found inside."
+
+        gdf = gpd.read_file(shp_files[0])
+
+        if gdf.empty:
+            return None, "Shapefile loaded but contains no features."
+
+        if gdf.crs is None:
+            # Best guess fallback
+            gdf = gdf.set_crs(epsg=4326, allow_override=True)
+        else:
+            gdf = gdf.to_crs(epsg=4326)
+
+        return gdf, f"Flood hazard layer loaded successfully ({len(gdf)} features)."
+
+    except zipfile.BadZipFile:
+        return None, "The file is not a valid ZIP archive."
+    except Exception as e:
+        return None, f"Could not load flood layer: {e}"
+
+@st.cache_data(show_spinner=False)
+def load_flood_data():
+    return safe_load_flood_shapefile("flood_hazard.zip")
+
+def detect_hazard_column(gdf: gpd.GeoDataFrame):
+    """
+    Tries to guess the hazard classification field.
+    """
+    candidates = [
+        "hazard", "HAZARD", "Hazard",
+        "level", "LEVEL", "Level",
+        "class", "CLASS", "Class",
+        "floodhaz", "FLOODHAZ", "flood_haz",
+        "GRIDCODE", "gridcode"
+    ]
+    for c in candidates:
+        if c in gdf.columns:
+            return c
+    return None
+
+def classify_color(value):
+    """
+    Flexible coloring for hazard categories.
+    """
+    if value is None:
+        return "#2b6cb0"
+
+    v = str(value).strip().lower()
+
+    if "high" in v or v == "3":
+        return "#d73027"
+    if "moderate" in v or "medium" in v or v == "2":
+        return "#fc8d59"
+    if "low" in v or v == "1":
+        return "#fee08b"
+
+    return "#74add1"
 
 def generate_map_layout(selected_barangay, selected_theme, basemap_for_plate):
     selected_row = barangay_data[barangay_data["Barangay"] == selected_barangay].iloc[0]
@@ -204,7 +267,6 @@ def generate_map_layout(selected_barangay, selected_theme, basemap_for_plate):
     ax = fig.add_axes([0.06, 0.18, 0.62, 0.72])
     info_ax = fig.add_axes([0.72, 0.18, 0.24, 0.72])
 
-    # point size varies if population map selected
     if selected_theme == "Population Map":
         sizes = barangay_data["Population_2024"] / 70
         ax.scatter(
@@ -286,7 +348,7 @@ def generate_map_layout(selected_barangay, selected_theme, basemap_for_plate):
 
     ax.text(
         0.02, 0.02,
-        "Approximate plotting only until real barangay geometry is added",
+        "Approximate barangay plotting only until real barangay GIS boundaries are added",
         transform=ax.transAxes,
         fontsize=8,
         bbox=dict(facecolor="white", alpha=0.85, edgecolor="gray")
@@ -303,7 +365,7 @@ def generate_map_layout(selected_barangay, selected_theme, basemap_for_plate):
         f"CHANGE 2020-2024:\n{int(selected_row['Pop_Change_2020_2024']):,}\n\n"
         f"BASEMAP:\n{basemap_for_plate}\n\n"
         f"DESCRIPTION:\n{hazard_info[selected_theme]['description']}\n\n"
-        f"SOURCE NOTE:\nPopulation values adapted from\nCityPopulation reference data.\nSpatial plotting remains approximate\nuntil verified barangay geometry\nis supplied."
+        f"SOURCE NOTE:\nPrepared by the researcher using\npopulation reference data and\napproximate barangay reference points.\nUse real barangay GIS data for\naccurate spatial thesis output."
     )
     info_ax.text(0.05, 0.95, info_text, va="top", fontsize=9)
 
@@ -313,14 +375,40 @@ def generate_map_layout(selected_barangay, selected_theme, basemap_for_plate):
     ax.legend(handles=legend_elements, loc="lower left", fontsize=8, frameon=True)
 
     fig.text(0.06, 0.07, "Prepared through Eco-Resilience AI Platform", fontsize=9, weight="bold")
-    fig.text(0.06, 0.045, "Population values based on CityPopulation reference data", fontsize=8)
-    fig.text(0.06, 0.02, "Important: map location remains approximate until real barangay geometry is loaded.", fontsize=8)
+    fig.text(0.06, 0.045, "Flood layer may be shown in web map if valid hazard ZIP is provided", fontsize=8)
+    fig.text(0.06, 0.02, "Important: point plotting remains approximate until real barangay GIS geometry is loaded.", fontsize=8)
 
     return fig
 
-# -------------------------------------------------
+# =================================================
+# LOAD FLOOD DATA
+# =================================================
+gdf_flood, flood_status = load_flood_data()
+
+# =================================================
+# HEADER
+# =================================================
+st.markdown("""
+<div class="hero-box">
+    <h1 style="color:white; margin-bottom:0.3rem;">Eco-Resilience AI Platform</h1>
+    <p style="font-size:1.05rem; margin-bottom:0;">
+    A decision-support and research-assist website for DRRM, circular economy, demographic profiling,
+    barangay mapping, population analysis, flood hazard viewing, and thesis-ready planning outputs.
+    </p>
+</div>
+""", unsafe_allow_html=True)
+
+st.markdown(f"""
+<div class="custom-card">
+This version supports an actual flood hazard layer if a valid zipped shapefile is placed in the repository as
+<b>flood_hazard.zip</b>.<br><br>
+<b>Flood layer status:</b> {flood_status}
+</div>
+""", unsafe_allow_html=True)
+
+# =================================================
 # TABS
-# -------------------------------------------------
+# =================================================
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Overview",
     "Population Profile",
@@ -329,9 +417,9 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "Map Generator"
 ])
 
-# -------------------------------------------------
+# =================================================
 # TAB 1
-# -------------------------------------------------
+# =================================================
 with tab1:
     st.subheader("Butuan City Profile")
 
@@ -343,24 +431,25 @@ with tab1:
 
     st.markdown("""
     <div class="custom-card">
-    This dashboard combines Butuan city profile values with selected barangay population values.
-    It is useful for demographic comparison and thesis presentation, but spatial accuracy still depends
-    on loading real barangay GIS data.
+    This dashboard combines city profile values, barangay population references, interactive map viewing,
+    and flood hazard visualization. Accurate barangay plotting still requires a real barangay boundary dataset.
     </div>
     """, unsafe_allow_html=True)
 
-# -------------------------------------------------
+# =================================================
 # TAB 2
-# -------------------------------------------------
+# =================================================
 with tab2:
     st.subheader("Barangay Population Profile")
 
     display_df = barangay_data[[
-        "Barangay", "Population_2015", "Population_2020", "Population_2024", "Pop_Change_2020_2024", "Growth_Rate"
+        "Barangay", "Population_2015", "Population_2020", "Population_2024",
+        "Pop_Change_2020_2024", "Growth_Rate"
     ]].copy()
 
     display_df.columns = [
-        "Barangay", "Population 2015", "Population 2020", "Population 2024", "Change 2020-2024", "Annual Growth Rate (%)"
+        "Barangay", "Population 2015", "Population 2020", "Population 2024",
+        "Change 2020-2024", "Annual Growth Rate (%)"
     ]
 
     st.dataframe(display_df, use_container_width=True)
@@ -385,22 +474,48 @@ with tab2:
         ).properties(height=380)
         st.altair_chart(change_chart, use_container_width=True)
 
-# -------------------------------------------------
+# =================================================
 # TAB 3
-# -------------------------------------------------
+# =================================================
 with tab3:
     st.subheader("Interactive Map Studio")
 
     row = barangay_data[barangay_data["Barangay"] == selected_barangay].iloc[0]
-    theme_color = hazard_info[selected_theme]["color"]
 
     m = folium.Map(
-        location=[row["Latitude"], row["Longitude"]],
-        zoom_start=13,
+        location=[city_profile["Latitude"], city_profile["Longitude"]],
+        zoom_start=12,
         tiles=get_folium_tiles(basemap_choice)
     )
 
-    # population-based scaling in interactive map
+    # Real flood layer if valid
+    if show_flood_layer and gdf_flood is not None:
+        hazard_col = detect_hazard_column(gdf_flood)
+
+        def style_function(feature):
+            value = None
+            if hazard_col:
+                value = feature["properties"].get(hazard_col)
+            return {
+                "fillColor": classify_color(value),
+                "color": classify_color(value),
+                "weight": 1,
+                "fillOpacity": 0.35
+            }
+
+        tooltip_fields = []
+        for c in gdf_flood.columns:
+            if c != "geometry":
+                tooltip_fields.append(c)
+
+        folium.GeoJson(
+            gdf_flood,
+            name="Flood Hazard",
+            style_function=style_function,
+            tooltip=folium.GeoJsonTooltip(fields=tooltip_fields[:8])
+        ).add_to(m)
+
+    # Approximate barangay points
     for _, r in barangay_data.iterrows():
         radius = max(4, r["Population_2024"] / 3000)
         folium.CircleMarker(
@@ -420,19 +535,25 @@ with tab3:
         icon=folium.Icon(color="darkgreen", icon="info-sign")
     ).add_to(m)
 
-    st_folium(m, height=520, width=None)
+    folium.LayerControl().add_to(m)
+    st_folium(m, height=560, width=None)
 
     st.markdown(f"""
     <div class="custom-card">
-    <b>Selected Theme:</b> {selected_theme}<br>
     <b>Selected Barangay:</b> {selected_barangay}<br>
-    <b>Important:</b> Current barangay locations are still approximate reference points only.
+    <b>Selected Theme:</b> {selected_theme}<br>
+    <b>Flood Layer:</b> {"Loaded" if gdf_flood is not None else "Not available"}<br>
+    <b>Important:</b> Flood polygons may be real, but the barangay points are still approximate unless real barangay GIS boundaries are added.
     </div>
     """, unsafe_allow_html=True)
 
-# -------------------------------------------------
+    if gdf_flood is not None:
+        st.markdown("### Flood Layer Fields")
+        st.write([c for c in gdf_flood.columns if c != "geometry"])
+
+# =================================================
 # TAB 4
-# -------------------------------------------------
+# =================================================
 with tab4:
     st.subheader("AI-Assisted Assessment Tool")
 
@@ -455,20 +576,86 @@ with tab4:
         total_score = flood_score + waste_score + drainage_score + exposure_score
         level = "HIGH" if total_score >= 10 else "MODERATE" if total_score >= 7 else "LOW"
 
-        st.metric("Risk Score", total_score)
-        st.metric("Risk Level", level)
-        st.metric("Population 2024", f"{int(row['Population_2024']):,}")
+        recommendations = []
 
-# -------------------------------------------------
+        if planning_focus in ["Integrated", "DRRM"]:
+            if flood in ["Moderate", "High"]:
+                recommendations.append("Strengthen flood preparedness and community response planning.")
+            if drainage == "Poor":
+                recommendations.append("Prioritize drainage rehabilitation and localized flood mitigation.")
+            if exposure == "High":
+                recommendations.append("Focus on highly exposed households for early warning and response coordination.")
+
+        if planning_focus in ["Integrated", "Circular Economy"]:
+            if waste in ["Fair", "Poor"]:
+                recommendations.append("Improve segregation at source and strengthen barangay-level recovery systems.")
+            recommendations.append("Promote circular economy actions through reuse, diversion, and community waste reduction.")
+
+        if not recommendations:
+            recommendations.append("Maintain current systems and continue monitoring.")
+
+        chart_df = pd.DataFrame({
+            "Factor": ["Flood", "Waste", "Drainage", "Exposure"],
+            "Score": [flood_score, waste_score, drainage_score, exposure_score]
+        })
+
+        r1, r2, r3, r4 = st.columns(4)
+        r1.metric("Risk Score", total_score)
+        r2.metric("Risk Level", level)
+        r3.metric("Population 2024", f"{int(row['Population_2024']):,}")
+        r4.metric("Growth Rate (%)", f"{row['Growth_Rate']:.2f}")
+
+        left, right = st.columns([1.2, 1])
+
+        with left:
+            interpretation = (
+                "This barangay requires immediate intervention and stronger planning control."
+                if level == "HIGH" else
+                "This barangay requires preventive action, monitoring, and planning attention."
+                if level == "MODERATE" else
+                "This barangay is relatively stable but still requires regular monitoring."
+            )
+
+            st.markdown("### Assessment Interpretation")
+            st.markdown(f"<div class='custom-card'>{interpretation}</div>", unsafe_allow_html=True)
+
+            st.markdown("### Recommended Actions")
+            rec_html = "<div class='custom-card'>" + "".join([f"<p>• {r}</p>" for r in recommendations]) + "</div>"
+            st.markdown(rec_html, unsafe_allow_html=True)
+
+            export_df = pd.DataFrame({
+                "Field": [
+                    "Barangay", "Population 2024", "Planning Focus",
+                    "Flood Exposure", "Waste Condition", "Drainage Condition",
+                    "Population Exposure", "Risk Score", "Risk Level"
+                ],
+                "Value": [
+                    selected_barangay, int(row["Population_2024"]), planning_focus,
+                    flood, waste, drainage, exposure, total_score, level
+                ]
+            })
+
+            st.download_button(
+                label="Download Assessment CSV",
+                data=export_df.to_csv(index=False).encode("utf-8"),
+                file_name=f"{selected_barangay.lower().replace(' ', '_')}_assessment.csv",
+                mime="text/csv"
+            )
+
+        with right:
+            st.markdown("### Factor Breakdown")
+            st.bar_chart(chart_df.set_index("Factor"))
+
+# =================================================
 # TAB 5
-# -------------------------------------------------
+# =================================================
 with tab5:
     st.subheader("Thesis-Ready Map Generator")
 
     st.markdown("""
     <div class="custom-card">
-    This generates a downloadable map plate using available population values and a real basemap.
-    Spatial placement is still approximate until a verified Butuan barangay boundary or centroid dataset is loaded.
+    This generates a downloadable map plate with a real basemap. The flood hazard layer can be shown in the web map if a valid shapefile ZIP is available.
+    For fully correct barangay plotting and highlighting, a real Butuan barangay boundary GeoJSON or shapefile is still required.
     </div>
     """, unsafe_allow_html=True)
 
@@ -492,23 +679,23 @@ with tab5:
 
     st.markdown("### Copy-Ready Thesis Caption")
     st.code(
-        f"Figure X. {selected_theme} map of {selected_barangay}, Butuan City, with population-based reference and approximate barangay plotting for preliminary academic use.",
+        f"Figure X. {selected_theme} map of {selected_barangay}, Butuan City, with population-based reference and interactive basemap support for preliminary academic use.",
         language="text"
     )
 
     st.markdown("### Copy-Ready Source Note")
     st.code(
-        "Source: Prepared by the researcher using CityPopulation demographic reference data and prototype spatial plotting through the Eco-Resilience AI Platform. Verified barangay GIS geometry is required for accurate spatial output.",
+        "Source: Prepared by the researcher through the Eco-Resilience AI Platform using demographic reference data, web basemap support, and optional flood hazard layer input. Accurate barangay GIS geometry is still required for final spatial output.",
         language="text"
     )
 
-# -------------------------------------------------
+# =================================================
 # FOOTER
-# -------------------------------------------------
+# =================================================
 st.markdown("---")
 st.markdown("""
 <div class="custom-card small-note">
-Population values in this prototype were adapted from the CityPopulation Butuan barangay reference page.
-For accurate barangay plotting, the next required input is a real Butuan barangay boundary or centroid GIS file.
+This version supports a real flood hazard shapefile if provided as <b>flood_hazard.zip</b>.  
+However, consistent barangay plotting still requires a real Butuan barangay boundary file such as GeoJSON or shapefile.
 </div>
 """, unsafe_allow_html=True)
