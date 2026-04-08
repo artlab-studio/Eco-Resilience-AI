@@ -1,8 +1,8 @@
 streamlit
 pandas
-numpy
+altair
 folium
 streamlit-folium
 matplotlib
 contextily
-altair
+numpy
