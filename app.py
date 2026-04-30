@@ -10,7 +10,7 @@ import streamlit as st
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import inch
-from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle, PageBreak
+from reportlab.platypus import SimpleDocTemplate, Paragraph, Spacer, Table, TableStyle
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 
 
@@ -21,6 +21,10 @@ CSU_GREEN = "#0f3d2e"
 CSU_GOLD = "#d4a017"
 LIGHT_GREEN = "#e7f3ec"
 
+DIRECTOR_NAME = "ENGR. MARIEL M. DELO"
+FMU_HEAD = "ENGR. MA. ZYLPHADELLE G. VALDUHUEZA"
+RESIDENT_ENGINEER = "ENGR. JOHN SALABE"
+
 UNITS = [
     "Facility Maintenance Unit",
     "Landscaping Unit",
@@ -28,18 +32,48 @@ UNITS = [
     "GSO Admin / Service Desk"
 ]
 
+WORK_CLASSIFICATIONS = [
+    "Preventive Maintenance",
+    "Corrective Maintenance",
+    "Emergency Repair",
+    "Minor Repair",
+    "Major Repair",
+    "Renovation / Improvement",
+    "Grounds Maintenance",
+    "Hauling / Clearing",
+    "Fabrication",
+    "Special Project"
+]
+
 REQUEST_TYPES = [
-    "Electrical Works", "Plumbing Works", "Civil Works", "Carpentry", "Masonry",
-    "Welding / Hotworks", "Electronics", "Aircon / HVAC", "Grounds Maintenance",
-    "Janitorial / Utility", "Solid Waste & Sustainability", "Hauling / Clearing",
-    "Vehicle Assignment", "Vehicle Repair / Maintenance", "Fuel Usage",
-    "Drafting / Estimates", "Program of Works", "Data Request",
-    "Procurement / Service Request", "Others"
+    "Electrical Works",
+    "Plumbing Works",
+    "Civil Works",
+    "Carpentry",
+    "Masonry",
+    "Welding / Hotworks",
+    "Electronics",
+    "Vehicle",
+    "Aircon / HVAC",
+    "Grounds Maintenance",
+    "Drafting / Estimates",
+    "Program of Works",
+    "Janitorial / Utility",
+    "Solid Waste & Sustainability",
+    "Data Request",
+    "Procurement / Service Request",
+    "Others"
 ]
 
 PPE = [
-    "Hard Hat", "Safety Shoes", "Gloves", "Goggles", "Harness",
-    "Mask", "Reflectorized Vest", "Face Shield"
+    "Hard Hat",
+    "Safety Shoes",
+    "Gloves",
+    "Goggles",
+    "Harness",
+    "Mask",
+    "Reflectorized Vest",
+    "Face Shield"
 ]
 
 
@@ -80,19 +114,6 @@ st.markdown(f"""
 .gso-hero h1 {{
     margin-bottom: 4px;
     font-size: 30px;
-}}
-
-.gso-card {{
-    background: white;
-    padding: 18px;
-    border-radius: 14px;
-    border: 1px solid #d9e7dc;
-    box-shadow: 0 4px 14px rgba(15, 61, 46, 0.08);
-}}
-
-.small-muted {{
-    color:#64748b;
-    font-size:0.9rem;
 }}
 
 .section-title {{
@@ -136,23 +157,26 @@ def init_db():
         office TEXT,
         building TEXT,
         unit TEXT,
+        work_classification TEXT,
         request_type TEXT,
-        classification TEXT,
+        system_classification TEXT,
         priority TEXT,
         status TEXT,
         purpose TEXT,
         description TEXT,
         schedule_from TEXT,
         schedule_to TEXT,
-        site_access TEXT,
+        working_hours TEXT,
+        access_condition TEXT,
         docs TEXT,
         safety_risk INTEGER,
         users_affected INTEGER,
         operational_impact INTEGER,
-        estimated_cost REAL,
+        complexity_level INTEGER,
         ai_score INTEGER,
-        ai_notes TEXT,
-        recommended_action TEXT
+        ai_narrative TEXT,
+        recommended_action TEXT,
+        special_project_note TEXT
     )
     """)
 
@@ -180,6 +204,8 @@ def init_db():
         created_at TEXT,
         date_completed TEXT,
         actual_completion TEXT,
+        team_leader TEXT,
+        slippage TEXT,
         work_performed TEXT,
         tools_used TEXT,
         materials_used TEXT,
@@ -210,6 +236,7 @@ def init_db():
         affected_operations TEXT,
         area_secured TEXT,
         responding_team TEXT,
+        team_leader TEXT,
         initial_action TEXT,
         temporary_measures TEXT,
         utilities_isolated TEXT,
@@ -259,17 +286,6 @@ def insert_record(table, data):
     conn.close()
 
 
-def update_request_status(req_id, status):
-    conn = get_conn()
-    cur = conn.cursor()
-    cur.execute(
-        "UPDATE requests SET status=?, updated_at=? WHERE id=?",
-        (status, now(), req_id)
-    )
-    conn.commit()
-    conn.close()
-
-
 def read_table(table):
     conn = get_conn()
     df = pd.read_sql_query(f"SELECT * FROM {table} ORDER BY created_at DESC", conn)
@@ -286,33 +302,46 @@ def get_request(req_id):
     return dict(row) if row else None
 
 
-def calc_priority(safety, affected, impact, cost, text):
+def update_request_status(req_id, status):
+    conn = get_conn()
+    cur = conn.cursor()
+    cur.execute(
+        "UPDATE requests SET status=?, updated_at=? WHERE id=?",
+        (status, now(), req_id)
+    )
+    conn.commit()
+    conn.close()
+
+
+def calc_ai_assessment(safety, affected, impact, complexity, text):
     text_l = (text or "").lower()
 
     emergency_terms = [
         "fire", "exposed wire", "flood", "fallen tree", "overflow",
         "no water", "no electricity", "collapse", "accident",
-        "hazard", "blocked road", "emergency", "leak near electrical",
-        "septic", "unsafe", "danger"
+        "hazard", "blocked road", "emergency", "unsafe", "danger",
+        "septic", "leak near electrical", "electrical spark"
     ]
 
-    complexity_terms = [
+    special_terms = [
         "renovation", "construction", "program of works", "estimate",
         "procurement", "upgrade", "development", "design", "budget",
         "multiple buildings", "campus-wide", "minor construction",
-        "installation", "improvement", "redevelopment"
+        "installation", "improvement", "redevelopment", "facility upgrade",
+        "landscape development", "equipment procurement", "infrastructure"
     ]
 
-    score = safety * 25 + affected * 15 + impact * 20
+    score = safety * 25 + affected * 15 + impact * 20 + complexity * 15
 
-    if cost and cost >= 50000:
-        score += 15
+    emergency_trigger = safety >= 4 or any(term in text_l for term in emergency_terms)
+    special_trigger = complexity >= 4 or any(term in text_l for term in special_terms)
 
-    if any(term in text_l for term in emergency_terms):
-        score += 25
-
-    if any(term in text_l for term in complexity_terms):
-        score += 18
+    if emergency_trigger:
+        system_classification = "Emergency"
+    elif special_trigger:
+        system_classification = "Special Project"
+    else:
+        system_classification = "Routine"
 
     if score >= 140:
         priority = "P1 - Critical"
@@ -325,28 +354,44 @@ def calc_priority(safety, affected, impact, cost, text):
     else:
         priority = "P5 - Scheduled / Programmed"
 
-    if safety >= 4 or any(term in text_l for term in emergency_terms):
-        classification = "Emergency"
-    elif any(term in text_l for term in complexity_terms) or (cost and cost >= 50000):
-        classification = "Special Project"
+    if system_classification == "Emergency":
+        narrative = (
+            "The system classified this request as Emergency because the concern indicates possible danger, "
+            "service interruption, or operational disruption. The score was generated using safety risk, number "
+            "of affected users, operational impact, and complexity of response. Immediate validation and deployment "
+            "by the concerned GSO unit is recommended."
+        )
+        action = "Immediate inspection, hazard control, and deployment subject to Unit Head and Director approval."
+        special_note = ""
+
+    elif system_classification == "Special Project":
+        narrative = (
+            "The system classified this request as Special Project because the concern appears to involve planned "
+            "improvement, upgrading, development, installation, procurement, infrastructure-related work, or activity "
+            "requiring programming beyond routine service. This type of request may need technical assessment, scope "
+            "validation, program of works, budget allocation, and VP or executive-level approval before implementation."
+        )
+        action = "Endorse for technical assessment, planning, budget review, and executive approval as applicable."
+        special_note = (
+            "Special Projects are planned activities involving improvement, upgrading, or development of facilities "
+            "and services. They may be short- to long-term, program-based, and may require funding allocation, VP or "
+            "executive approval, procurement, or inclusion in the office work and financial plan."
+        )
+
     else:
-        classification = "Routine"
+        narrative = (
+            "The system classified this request as Routine because the concern appears to be regular, recurring, "
+            "minor, or manageable within normal GSO operations. The request may be scheduled based on manpower, "
+            "materials, urgency, and availability of the concerned unit."
+        )
+        action = "Queue for regular scheduling and deployment by the concerned unit."
+        special_note = ""
 
-    notes = []
+    return system_classification, priority, min(score, 200), narrative, action, special_note
 
-    if classification == "Emergency":
-        notes.append("Immediate action is recommended due to safety risk, service disruption, or possible damage to University property.")
 
-    if classification == "Special Project":
-        notes.append("This request may require planning, cost estimate, procurement, technical assessment, budget approval, or programmed implementation.")
-
-    if classification == "Routine":
-        notes.append("This request may be queued as regular service work, subject to manpower, material availability, and unit schedule.")
-
-    if priority in ["P1 - Critical", "P2 - High"]:
-        notes.append("The GSO Service Desk and concerned Unit Head should prioritize validation and deployment.")
-
-    return classification, priority, min(score, 200), " ".join(notes)
+def checkbox(label, selected):
+    return f"☑ {label}" if label in selected else f"☐ {label}"
 
 
 def pdf_styles():
@@ -358,63 +403,61 @@ def pdf_styles():
         fontSize=13,
         alignment=1,
         textColor=colors.HexColor(CSU_GREEN),
-        spaceAfter=3
+        spaceAfter=2
     ))
 
     styles.add(ParagraphStyle(
         name="CSUSubtitle",
         parent=styles["Normal"],
         fontSize=8,
-        alignment=1,
-        textColor=colors.black,
-        spaceAfter=2
+        alignment=1
     ))
 
     styles.add(ParagraphStyle(
         name="FormTitle",
         parent=styles["Title"],
-        fontSize=12,
+        fontSize=11,
         alignment=1,
         textColor=colors.HexColor(CSU_GREEN),
-        spaceAfter=5
-    ))
-
-    styles.add(ParagraphStyle(
-        name="SectionHeader",
-        parent=styles["Heading2"],
-        fontSize=9,
-        textColor=colors.white,
-        backColor=colors.HexColor(CSU_GREEN),
-        leftIndent=4,
-        spaceBefore=6,
         spaceAfter=4
     ))
 
     styles.add(ParagraphStyle(
         name="Small",
         parent=styles["Normal"],
-        fontSize=7,
+        fontSize=7.2,
         leading=9
     ))
 
     styles.add(ParagraphStyle(
         name="SmallCenter",
         parent=styles["Normal"],
-        fontSize=7,
+        fontSize=7.2,
         leading=9,
         alignment=1
+    ))
+
+    styles.add(ParagraphStyle(
+        name="Section",
+        parent=styles["Heading2"],
+        fontSize=8.5,
+        textColor=colors.white,
+        backColor=colors.HexColor(CSU_GREEN),
+        leftIndent=4,
+        spaceBefore=5,
+        spaceAfter=4
     ))
 
     return styles
 
 
-def add_pdf_header(story, styles, title, form_no):
+def pdf_header(story, styles, office, title, ref_no):
     header = [
         [Paragraph("<b>CARAGA STATE UNIVERSITY</b>", styles["CSUTitle"])],
-        [Paragraph("General Services Office", styles["CSUSubtitle"])],
+        [Paragraph(office, styles["CSUSubtitle"])],
         [Paragraph("Ampayon, Butuan City, Philippines", styles["CSUSubtitle"])],
         [Paragraph(f"<b>{title}</b>", styles["FormTitle"])],
-        [Paragraph(f"Reference No.: {form_no}", styles["CSUSubtitle"])]
+        [Paragraph(f"Reference No.: {ref_no}", styles["CSUSubtitle"])]
     ]
 
     table = Table(header, colWidths=[7.2 * inch])
@@ -422,320 +465,363 @@ def add_pdf_header(story, styles, title, form_no):
         ("BOX", (0, 0), (-1, -1), 1, colors.HexColor(CSU_GREEN)),
         ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor(LIGHT_GREEN)),
         ("LINEBELOW", (0, 2), (-1, 2), 1, colors.HexColor(CSU_GOLD)),
-        ("TOPPADDING", (0, 0), (-1, -1), 4),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
+        ("TOPPADDING", (0, 0), (-1, -1), 3),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 3),
     ]))
 
     story.append(table)
-    story.append(Spacer(1, 8))
+    story.append(Spacer(1, 6))
 
 
-def build_field_table(data, styles):
-    rows = []
-    for key, value in data.items():
-        rows.append([
-            Paragraph(f"<b>{key}</b>", styles["Small"]),
-            Paragraph(str(value) if value else "", styles["Small"])
-        ])
+def field_table(rows, styles, widths=None):
+    if widths is None:
+        widths = [1.75 * inch, 1.85 * inch, 1.75 * inch, 1.85 * inch]
 
-    table = Table(rows, colWidths=[2.1 * inch, 5.1 * inch])
+    data = []
+    for row in rows:
+        data.append([Paragraph(str(cell or ""), styles["Small"]) for cell in row])
+
+    table = Table(data, colWidths=widths)
     table.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
-        ("BACKGROUND", (0, 0), (0, -1), colors.HexColor("#f1f5f2")),
+        ("BACKGROUND", (0, 0), (-1, -1), colors.white),
         ("VALIGN", (0, 0), (-1, -1), "TOP"),
-        ("TOPPADDING", (0, 0), (-1, -1), 5),
-        ("BOTTOMPADDING", (0, 0), (-1, -1), 5),
+        ("TOPPADDING", (0, 0), (-1, -1), 4),
+        ("BOTTOMPADDING", (0, 0), (-1, -1), 4),
     ]))
     return table
 
 
-def build_signature_table(signatories, styles):
-    rows = []
-    for label, name in signatories:
-        rows.append([
+def signature_block(rows, styles):
+    data = []
+    for label, name in rows:
+        data.append([
             Paragraph(
                 f"<br/><br/>_____________________________________<br/>"
-                f"<b>{name}</b><br/>{label}<br/>Date/Time: ___________________",
+                f"<b>{name}</b><br/>{label}<br/>Date & Time: ___________________",
                 styles["SmallCenter"]
             )
         ])
 
-    table = Table(rows, colWidths=[7.2 * inch])
+    table = Table(data, colWidths=[7.2 * inch])
     table.setStyle(TableStyle([
         ("GRID", (0, 0), (-1, -1), 0.4, colors.grey),
-        ("VALIGN", (0, 0), (-1, -1), "TOP"),
         ("TOPPADDING", (0, 0), (-1, -1), 7),
         ("BOTTOMPADDING", (0, 0), (-1, -1), 9),
     ]))
     return table
 
 
-def generate_pdf_form(title, form_no, sections, signatories, footer_note=None):
+def make_pdf(title, ref_no, build_function):
     buffer = BytesIO()
-
     doc = SimpleDocTemplate(
         buffer,
         pagesize=A4,
-        rightMargin=36,
-        leftMargin=36,
-        topMargin=30,
-        bottomMargin=30
+        rightMargin=34,
+        leftMargin=34,
+        topMargin=28,
+        bottomMargin=28
     )
-
     styles = pdf_styles()
     story = []
-
-    add_pdf_header(story, styles, title, form_no)
-
-    for section_title, data in sections:
-        story.append(Paragraph(section_title, styles["SectionHeader"]))
-        story.append(build_field_table(data, styles))
-        story.append(Spacer(1, 8))
-
-    story.append(Paragraph("SIGNATURES AND APPROVAL", styles["SectionHeader"]))
-    story.append(build_signature_table(signatories, styles))
-
-    if footer_note:
-        story.append(Spacer(1, 8))
-        story.append(Paragraph(footer_note, styles["Small"]))
-
-    story.append(Spacer(1, 8))
+    pdf_header(story, styles, "GENERAL SERVICES OFFICE", title, ref_no)
+    build_function(story, styles)
+    story.append(Spacer(1, 5))
     story.append(Paragraph(
-        "This is a system-generated institutional form of the CSU General Services Office. "
-        "Printed copies shall be signed by the concerned personnel for official processing.",
-        styles["Small"]
+        "F-ECO-006 | Rev. 01 | System-generated institutional copy for printing, signing, routing, and approval.",
+        styles["SmallCenter"]
     ))
-
     doc.build(story)
     buffer.seek(0)
     return buffer
 
 
-def generate_work_order_pdf(row):
-    sections = [
-        ("I. REQUESTOR INFORMATION", {
-            "Work Order No.": row.get("id"),
-            "Date Filed": row.get("created_at"),
-            "Requestor": row.get("requestor"),
-            "Position / Designation": row.get("position"),
-            "Contact No.": row.get("contact"),
-            "Email Address": row.get("email"),
-            "Requesting Office": row.get("office"),
-            "Building / Location": row.get("building"),
-        }),
-        ("II. WORK REQUEST DETAILS", {
-            "Concerned GSO Unit": row.get("unit"),
-            "Scope / Type of Work": row.get("request_type"),
-            "Classification": row.get("classification"),
-            "Priority Level": row.get("priority"),
-            "Status": row.get("status"),
-            "Purpose": row.get("purpose"),
-            "Work Description": row.get("description"),
-            "Preferred Schedule": f"{row.get('schedule_from')} to {row.get('schedule_to')}",
-            "Site Access": row.get("site_access"),
-            "Required Documents": row.get("docs"),
-        }),
-        ("III. RAPID / AI-ASSISTED INITIAL ASSESSMENT", {
-            "Safety Risk": row.get("safety_risk"),
-            "Users Affected": row.get("users_affected"),
-            "Operational Impact": row.get("operational_impact"),
-            "Estimated Cost": row.get("estimated_cost"),
-            "AI Score": row.get("ai_score"),
-            "Assessment Notes": row.get("ai_notes"),
-            "Recommended Action": row.get("recommended_action"),
-        })
-    ]
+def generate_work_order_pdf(r):
+    selected_class = [r.get("work_classification", "")]
+    selected_scope = [x.strip() for x in str(r.get("request_type", "")).split(",") if x.strip()]
 
-    signatories = [
-        ("Requestor / Authorized Personnel", row.get("requestor", "")),
-        ("Checked and Reviewed by Unit Head", "Concerned Unit Head"),
-        ("Approved by", "ENGR. MARIEL M. DELO, Director, General Services Office")
-    ]
+    def build(story, styles):
+        story.append(Paragraph("SERVICE REQUEST FORM", styles["Section"]))
 
-    return generate_pdf_form(
-        "SERVICE REQUEST / WORK ORDER FORM",
-        row.get("id"),
-        sections,
-        signatories,
-        "Work is allowed only on approved dates, approved locations, and approved scope. "
-        "Any variation, additional work, safety concern, or budget requirement shall be endorsed for proper approval."
-    )
+        story.append(field_table([
+            ["<b>WO No.</b>", r.get("id"), "<b>Date Filed</b>", r.get("created_at")],
+            ["<b>Requestor</b>", r.get("requestor"), "<b>Contact No.</b>", r.get("contact")],
+            ["<b>Position/Designation</b>", r.get("position"), "<b>Email Address</b>", r.get("email")],
+            ["<b>Requesting Office</b>", r.get("office"), "<b>Building/Location</b>", r.get("building")],
+        ], styles))
 
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("CLASSIFICATION AND SCOPE OF WORK", styles["Section"]))
 
-def generate_rapid_pdf(row):
-    sections = [
-        ("I. RAPID ASSESSMENT DETAILS", {
-            "Work Order Ref. No.": row.get("id"),
-            "Date Assessed": row.get("updated_at"),
-            "Facility / Location": row.get("building"),
-            "Nature of Concern": row.get("description"),
-            "Concerned Unit": row.get("unit"),
-        }),
-        ("II. RISK AND PRIORITY INDEX", {
-            "Safety Risk Level": row.get("safety_risk"),
-            "Users Affected": row.get("users_affected"),
-            "Operational Impact": row.get("operational_impact"),
-            "Estimated Cost": row.get("estimated_cost"),
-            "Priority Level": row.get("priority"),
-            "Classification": row.get("classification"),
-            "AI Score": row.get("ai_score"),
-            "Assessment Notes": row.get("ai_notes"),
-            "Recommended Action": row.get("recommended_action"),
-        })
-    ]
+        left = "<br/>".join([checkbox(x, selected_class) for x in WORK_CLASSIFICATIONS])
+        right = "<br/>".join([checkbox(x, selected_scope) for x in REQUEST_TYPES])
 
-    signatories = [
-        ("Assessed by", "GSO Technical Personnel"),
-        ("Checked and Reviewed by", "Concerned Unit Head"),
-        ("Approved by", "ENGR. MARIEL M. DELO, Director, General Services Office")
-    ]
+        story.append(field_table([
+            ["<b>Classification</b>", left, "<b>Scope of Work</b>", right]
+        ], styles, widths=[1.5 * inch, 2.1 * inch, 1.5 * inch, 2.1 * inch]))
 
-    return generate_pdf_form("RISK ASSESSMENT & PRIORITY INDEX FOR DEPLOYMENT", row.get("id"), sections, signatories)
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("SCHEDULE AND COORDINATION", styles["Section"]))
+
+        story.append(field_table([
+            ["<b>Work Schedule / Date</b>", f"From: {r.get('schedule_from')}<br/>To: {r.get('schedule_to')}",
+             "<b>Working Hours</b>", r.get("working_hours")],
+            ["<b>Site Coordination / Access Condition</b>", r.get("access_condition"), "<b>Required Documents</b>", r.get("docs")],
+        ], styles))
+
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("PURPOSE AND WORK DESCRIPTION", styles["Section"]))
+
+        story.append(field_table([
+            ["<b>Purpose</b>", r.get("purpose")],
+            ["<b>Work Description</b>", r.get("description")]
+        ], styles, widths=[1.7 * inch, 5.5 * inch]))
+
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("AI-ASSISTED ASSESSMENT NARRATIVE", styles["Section"]))
+
+        story.append(field_table([
+            ["<b>System Classification</b>", r.get("system_classification"), "<b>Priority Level</b>", r.get("priority")],
+            ["<b>AI Score</b>", r.get("ai_score"), "<b>Recommended Action</b>", r.get("recommended_action")],
+            ["<b>Assessment Narrative</b>", r.get("ai_narrative")],
+            ["<b>Special Project Note</b>", r.get("special_project_note")],
+        ], styles, widths=[1.7 * inch, 1.9 * inch, 1.7 * inch, 1.9 * inch]))
+
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("REQUEST CONDITIONS", styles["Section"]))
+        conditions = """
+        By signing below, the requestor affirms that all details provided are true and correct and that the requesting office agrees to comply with University policies, safety regulations, and applicable repair and maintenance guidelines.
+        Work is allowed only on approved dates, locations, and approved scope. Any variation or additional work requires prior approval of the General Services Office. GSO personnel may access, inspect, and monitor the area as necessary for official work implementation, subject to coordination with the concerned office when sensitive documents, equipment, classes, examinations, or restricted activities are present.
+        """
+        story.append(Paragraph(conditions, styles["Small"]))
+
+        story.append(Spacer(1, 5))
+        story.append(signature_block([
+            ("Signature over Printed Name of Requestor or Authorized Personnel", r.get("requestor", "")),
+            ("Checked and Reviewed by", "Concerned Unit Head"),
+            ("Issued / Approved by", f"{DIRECTOR_NAME}, Director, General Services Office")
+        ], styles))
+
+    return make_pdf("SERVICE REQUEST FORM", r.get("id"), build)
 
 
-def generate_wds_pdf(dep_row, req_row):
-    sections = [
-        ("I. DEPLOYMENT REFERENCE", {
-            "WDS No.": dep_row.get("id"),
-            "Work Order Ref. No.": dep_row.get("request_id"),
-            "Date Assigned": dep_row.get("created_at"),
-            "Work Location": req_row.get("building") if req_row else "",
-            "Requesting Office": req_row.get("office") if req_row else "",
-            "Concerned Unit": req_row.get("unit") if req_row else "",
-        }),
-        ("II. WORKFORCE DEPLOYMENT DETAILS", {
-            "Team Leader": dep_row.get("team_leader"),
-            "Start Date": dep_row.get("start_date"),
-            "Target Completion": dep_row.get("target_completion"),
-            "Safety PPE Required": dep_row.get("ppe"),
-            "Assigned Personnel": dep_row.get("personnel"),
-            "Tools Needed": dep_row.get("tools"),
-            "Materials Needed": dep_row.get("materials"),
-            "Scope of Works": dep_row.get("scope"),
-            "Recommended Action": dep_row.get("action"),
-        })
-    ]
+def generate_rapid_pdf(r):
+    safety_labels = ["Low", "Moderate", "High", "Critical"]
+    affected_labels = ["Few", "Several", "Many", "Entire Building"]
+    impact_labels = ["Minor", "Moderate", "Major", "Severe"]
+    priority_labels = ["P1 - Critical", "P2 - High", "P3 - Moderate", "P4 - Low", "P5 - Scheduled / Programmed"]
 
-    signatories = [
-        ("Prepared by", "GSO Technical Personnel / Team Leader"),
-        ("Checked and Reviewed by", "Concerned Unit Head"),
-        ("Approved by", "ENGR. MARIEL M. DELO, Director, General Services Office")
-    ]
+    safety_selected = [safety_labels[int(r.get("safety_risk") or 1) - 1]]
+    affected_selected = [affected_labels[int(r.get("users_affected") or 1) - 1]]
+    impact_selected = [impact_labels[int(r.get("operational_impact") or 1) - 1]]
+    priority_selected = [r.get("priority")]
 
-    return generate_pdf_form("WORKFORCE DEPLOYMENT SLIP", dep_row.get("id"), sections, signatories)
+    def build(story, styles):
+        story.append(Paragraph("RISK ASSESSMENT & PRIORITY INDEX FOR DEPLOYMENT", styles["Section"]))
 
+        story.append(field_table([
+            ["<b>RAPID No.</b>", f"RAPID-{r.get('id')}", "<b>Work Order Ref. No.</b>", r.get("id")],
+            ["<b>Date Assessed</b>", r.get("updated_at"), "<b>Unit</b>", r.get("unit")],
+            ["<b>Facility/Location</b>", r.get("building"), "<b>Assessed by</b>", "GSO Technical Personnel"],
+        ], styles))
 
-def generate_prime_pdf(comp_row, req_row):
-    sections = [
-        ("I. COMPLETION REFERENCE", {
-            "PRIME No.": comp_row.get("id"),
-            "Work Order Ref. No.": comp_row.get("request_id"),
-            "Date Completed": comp_row.get("date_completed"),
-            "Actual Completion Time": comp_row.get("actual_completion"),
-            "Work Location": req_row.get("building") if req_row else "",
-            "Requesting Office": req_row.get("office") if req_row else "",
-        }),
-        ("II. COMPLETION DETAILS", {
-            "Work Performed": comp_row.get("work_performed"),
-            "Tools Used": comp_row.get("tools_used"),
-            "Materials Used": comp_row.get("materials_used"),
-            "Assigned Personnel": comp_row.get("personnel"),
-            "Scope of Works": comp_row.get("scope"),
-            "Issues Encountered": comp_row.get("issues"),
-            "Final Condition": comp_row.get("final_condition"),
-            "Site Status": comp_row.get("site_status"),
-            "Completion Rating": comp_row.get("rating"),
-            "Post-Completion Requirements": comp_row.get("post_requirements"),
-            "User Acknowledgement": comp_row.get("user_ack"),
-        })
-    ]
+        story.append(Spacer(1, 5))
+        story.append(field_table([
+            ["<b>Nature of Concern</b>", r.get("description")]
+        ], styles, widths=[1.7 * inch, 5.5 * inch]))
 
-    signatories = [
-        ("Prepared by", "GSO Technical Personnel / Team Leader"),
-        ("User Acknowledgement", comp_row.get("user_ack", "")),
-        ("Verified by", "Concerned Unit Head"),
-        ("Approved by", "ENGR. MARIEL M. DELO, Director, General Services Office")
-    ]
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("RISK INDEX", styles["Section"]))
 
-    return generate_pdf_form("PROJECT RESOLUTION, INSPECTION & MAINTENANCE EXIT REPORT", comp_row.get("id"), sections, signatories)
+        story.append(field_table([
+            ["<b>Safety Risk Level</b>", "<br/>".join([checkbox(x, safety_selected) for x in safety_labels]),
+             "<b>Users Affected</b>", "<br/>".join([checkbox(x, affected_selected) for x in affected_labels])],
+            ["<b>Operational Impact</b>", "<br/>".join([checkbox(x, impact_selected) for x in impact_labels]),
+             "<b>Priority Level</b>", "<br/>".join([checkbox(x, priority_selected) for x in priority_labels])],
+        ], styles))
+
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("AI-ASSISTED ASSESSMENT NARRATIVE", styles["Section"]))
+
+        story.append(field_table([
+            ["<b>System Classification</b>", r.get("system_classification"), "<b>AI Score</b>", r.get("ai_score")],
+            ["<b>Reason for Classification</b>", r.get("ai_narrative")],
+            ["<b>Special Project / Executive Approval Context</b>", r.get("special_project_note")],
+            ["<b>Recommended Action</b>", r.get("recommended_action")],
+        ], styles, widths=[1.8 * inch, 1.8 * inch, 1.8 * inch, 1.8 * inch]))
+
+        story.append(Spacer(1, 5))
+        story.append(signature_block([
+            ("Checked and Reviewed by", f"{FMU_HEAD}, Head, Facility Maintenance Unit"),
+            ("Approved by", f"{DIRECTOR_NAME}, Director, General Services Office")
+        ], styles))
+
+    return make_pdf("RISK ASSESSMENT & PRIORITY INDEX FOR DEPLOYMENT", f"RAPID-{r.get('id')}", build)
 
 
-def generate_ready_pdf(row):
-    sections = [
-        ("I. EMERGENCY REPORT DETAILS", {
-            "READY No.": row.get("id"),
-            "Date / Time Reported": row.get("created_at"),
-            "Reported by": row.get("reported_by"),
-            "Requesting Office / Department": row.get("office"),
-            "Exact Location / Building": row.get("location"),
-            "Contact No.": row.get("contact"),
-        }),
-        ("II. INCIDENT AND RESPONSE DETAILS", {
-            "Incident Category": row.get("incident_category"),
-            "Priority Level": row.get("priority"),
-            "Nature of Emergency Concern": row.get("concern"),
-            "Immediate Hazard Present": row.get("hazard_present"),
-            "Hazard Description": row.get("hazard_description"),
-            "Affected Occupants / Operations": row.get("affected_operations"),
-            "Area Secured / Isolated": row.get("area_secured"),
-            "GSO Responding Team": row.get("responding_team"),
-            "Initial Action Taken": row.get("initial_action"),
-            "Temporary Corrective Measures": row.get("temporary_measures"),
-            "Utilities Isolated": row.get("utilities_isolated"),
-            "Area Declared Safe": row.get("declared_safe"),
-            "Further Repair Required": row.get("further_repair"),
-            "Follow-up Work Order No.": row.get("followup_wo"),
-            "Final Status": row.get("final_status"),
-            "Findings / Recommendations": row.get("findings"),
-        })
-    ]
+def generate_wds_pdf(d, r):
+    selected_ppe = [x.strip() for x in str(d.get("ppe", "")).split(",") if x.strip()]
 
-    signatories = [
-        ("Prepared by", "GSO Responding Team / Team Leader"),
-        ("Verified by", "Concerned Unit Head"),
-        ("Approved by", "ENGR. MARIEL M. DELO, Director, General Services Office")
-    ]
+    def build(story, styles):
+        story.append(Paragraph("WORKFORCE DEPLOYMENT SLIP", styles["Section"]))
 
-    return generate_pdf_form("RAPID EMERGENCY ASSISTANCE FOR DAMAGE & YIELD RECOVERY", row.get("id"), sections, signatories)
+        story.append(field_table([
+            ["<b>WDS No.</b>", d.get("id"), "<b>Work Order Ref. No.</b>", d.get("request_id")],
+            ["<b>Date Assigned</b>", d.get("created_at"), "<b>Work Location</b>", r.get("building") if r else ""],
+            ["<b>Team Leader</b>", d.get("team_leader"), "<b>Start Date</b>", d.get("start_date")],
+            ["<b>Target Completion</b>", d.get("target_completion"), "<b>Requesting Office</b>", r.get("office") if r else ""],
+        ], styles))
+
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("SAFETY PPE REQUIRED", styles["Section"]))
+        story.append(Paragraph("<br/>".join([checkbox(x, selected_ppe) for x in PPE]), styles["Small"]))
+
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("DEPLOYMENT DETAILS", styles["Section"]))
+        story.append(field_table([
+            ["<b>Tools Needed</b>", d.get("tools")],
+            ["<b>Materials Needed</b>", d.get("materials")],
+            ["<b>Assigned Personnel</b>", d.get("personnel")],
+            ["<b>Scope of Works</b>", d.get("scope")],
+            ["<b>Recommended Action</b>", d.get("action")],
+        ], styles, widths=[1.7 * inch, 5.5 * inch]))
+
+        story.append(Spacer(1, 5))
+        story.append(signature_block([
+            ("Prepared by", f"{RESIDENT_ENGINEER}, Resident Engineer"),
+            ("Checked and Reviewed by", f"{FMU_HEAD}, Head, Facility Maintenance Unit"),
+            ("Approved by", f"{DIRECTOR_NAME}, Director, General Services Office")
+        ], styles))
+
+    return make_pdf("WORKFORCE DEPLOYMENT SLIP", d.get("id"), build)
 
 
-def generate_transport_pdf(row):
-    distance = ""
+def generate_prime_pdf(c, r):
+    selected_work = [x.strip() for x in str(c.get("work_performed", "")).split(",") if x.strip()]
+    selected_status = [x.strip() for x in str(c.get("site_status", "")).split(",") if x.strip()]
+    selected_post = [x.strip() for x in str(c.get("post_requirements", "")).split(",") if x.strip()]
+
+    def build(story, styles):
+        story.append(Paragraph("PROJECT RESOLUTION, INSPECTION & MAINTENANCE EXIT REPORT", styles["Section"]))
+
+        story.append(field_table([
+            ["<b>PRIME No.</b>", c.get("id"), "<b>Work Order Ref. No.</b>", c.get("request_id")],
+            ["<b>Date Completed</b>", c.get("date_completed"), "<b>Actual Completion Time</b>", c.get("actual_completion")],
+            ["<b>Work Location</b>", r.get("building") if r else "", "<b>Team Leader</b>", c.get("team_leader")],
+            ["<b>Slippage</b>", c.get("slippage"), "<b>Requesting Office</b>", r.get("office") if r else ""],
+        ], styles))
+
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("WORK PERFORMED", styles["Section"]))
+        work_options = ["Repair", "Renovation", "Installation", "Maintenance", "Fabrication", "Emergency Response"]
+        story.append(Paragraph("<br/>".join([checkbox(x, selected_work) for x in work_options]), styles["Small"]))
+
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("COMPLETION DETAILS", styles["Section"]))
+
+        story.append(field_table([
+            ["<b>Tools Used</b>", c.get("tools_used")],
+            ["<b>Materials Used</b>", c.get("materials_used")],
+            ["<b>Assigned Personnel</b>", c.get("personnel")],
+            ["<b>Scope of Works</b>", c.get("scope")],
+            ["<b>Issues Encountered</b>", c.get("issues")],
+            ["<b>Final Condition</b>", c.get("final_condition")],
+            ["<b>Site Status</b>", "<br/>".join([checkbox(x, selected_status) for x in ["Cleaned", "Safe", "Operational", "Turned Over"]])],
+            ["<b>Completion Rating</b>", c.get("rating")],
+            ["<b>Post-Completion Requirements</b>", "<br/>".join([checkbox(x, selected_post) for x in [
+                "No Further Action Needed",
+                "Include in Preventive Maintenance Schedule",
+                "Requires Budget",
+                "Subject for Technical Reassessment"
+            ]])]
+        ], styles, widths=[1.8 * inch, 5.4 * inch]))
+
+        story.append(Spacer(1, 5))
+        story.append(signature_block([
+            ("Prepared by", f"{RESIDENT_ENGINEER}, Resident Engineer"),
+            ("User Acknowledgement / Requestor", c.get("user_ack", "")),
+            ("Verified by", f"{FMU_HEAD}, Head, Facility Maintenance Unit"),
+            ("Approved by", f"{DIRECTOR_NAME}, Director, General Services Office")
+        ], styles))
+
+    return make_pdf("PROJECT RESOLUTION, INSPECTION & MAINTENANCE EXIT REPORT", c.get("id"), build)
+
+
+def generate_ready_pdf(r):
+    def build(story, styles):
+        story.append(Paragraph("RAPID EMERGENCY ASSISTANCE FOR DAMAGE & YIELD RECOVERY", styles["Section"]))
+
+        story.append(field_table([
+            ["<b>READY No.</b>", r.get("id"), "<b>Date / Time Reported</b>", r.get("created_at")],
+            ["<b>Reported by</b>", r.get("reported_by"), "<b>Contact No.</b>", r.get("contact")],
+            ["<b>Requesting Office / Department</b>", r.get("office"), "<b>Exact Location / Building</b>", r.get("location")],
+        ], styles))
+
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("INCIDENT AND RESPONSE DETAILS", styles["Section"]))
+
+        story.append(field_table([
+            ["<b>Incident Category</b>", r.get("incident_category"), "<b>Priority Level</b>", r.get("priority")],
+            ["<b>Nature of Emergency Concern</b>", r.get("concern")],
+            ["<b>Immediate Hazard Present</b>", r.get("hazard_present"), "<b>Area Secured / Isolated</b>", r.get("area_secured")],
+            ["<b>Hazard Description</b>", r.get("hazard_description")],
+            ["<b>Affected Occupants / Operations</b>", r.get("affected_operations")],
+            ["<b>GSO Responding Team</b>", r.get("responding_team"), "<b>Team Leader</b>", r.get("team_leader")],
+            ["<b>Initial Action Taken</b>", r.get("initial_action")],
+            ["<b>Temporary Corrective Measures</b>", r.get("temporary_measures")],
+            ["<b>Utilities Isolated</b>", r.get("utilities_isolated"), "<b>Area Declared Safe</b>", r.get("declared_safe")],
+            ["<b>Further Repair Required</b>", r.get("further_repair"), "<b>Follow-Up Work Order No.</b>", r.get("followup_wo")],
+            ["<b>Estimated Restoration Time</b>", r.get("restoration_time"), "<b>Actual Completion Time</b>", r.get("actual_completion")],
+            ["<b>Final Status</b>", r.get("final_status")],
+            ["<b>Findings / Recommendations</b>", r.get("findings")],
+        ], styles, widths=[1.8 * inch, 1.8 * inch, 1.8 * inch, 1.8 * inch]))
+
+        story.append(Spacer(1, 5))
+        story.append(Paragraph("RESPONSE TIME STANDARDS", styles["Section"]))
+        story.append(field_table([
+            ["<b>Critical</b>", "Immediate / within 15 minutes", "<b>High</b>", "Within 30 minutes"],
+            ["<b>Moderate</b>", "Within 2 hours", "<b>Low</b>", "Within 24 hours"]
+        ], styles))
+
+        story.append(Spacer(1, 5))
+        story.append(signature_block([
+            ("Prepared by", f"{RESIDENT_ENGINEER}, Resident Engineer"),
+            ("Verified by", f"{FMU_HEAD}, Head, Facility Maintenance Unit"),
+            ("Approved by", f"{DIRECTOR_NAME}, Director, General Services Office")
+        ], styles))
+
+    return make_pdf("READY: RAPID EMERGENCY ASSISTANCE FOR DAMAGE & YIELD RECOVERY", r.get("id"), build)
+
+
+def generate_transport_pdf(r):
     try:
-        distance = float(row.get("odometer_end") or 0) - float(row.get("odometer_start") or 0)
+        distance = float(r.get("odometer_end") or 0) - float(r.get("odometer_start") or 0)
     except Exception:
         distance = ""
 
-    sections = [
-        ("I. VEHICLE ASSIGNMENT DETAILS", {
-            "Transport Ref. No.": row.get("id"),
-            "Date Created": row.get("created_at"),
-            "Vehicle / Plate No.": row.get("vehicle"),
-            "Driver": row.get("driver"),
-            "Requesting Office": row.get("requesting_office"),
-            "Trip Date": row.get("trip_date"),
-            "Destination": row.get("destination"),
-            "Purpose": row.get("purpose"),
-            "No. of Passengers": row.get("passengers"),
-        }),
-        ("II. UTILIZATION AND MONITORING", {
-            "Fuel Used / Issued in Liters": row.get("fuel_liters"),
-            "Odometer Start": row.get("odometer_start"),
-            "Odometer End": row.get("odometer_end"),
-            "Distance Travelled": distance,
-            "Status": row.get("status"),
-            "Remarks": row.get("remarks"),
-        })
-    ]
+    def build(story, styles):
+        story.append(Paragraph("TRANSPORTATION SERVICE / VEHICLE UTILIZATION FORM", styles["Section"]))
 
-    signatories = [
-        ("Requested / Confirmed by", row.get("requesting_office", "")),
-        ("Driver", row.get("driver", "")),
-        ("Checked and Reviewed by", "Transportation Unit Head"),
-        ("Approved by", "ENGR. MARIEL M. DELO, Director, General Services Office")
-    ]
+        story.append(field_table([
+            ["<b>Transport Ref. No.</b>", r.get("id"), "<b>Date Created</b>", r.get("created_at")],
+            ["<b>Vehicle / Plate No.</b>", r.get("vehicle"), "<b>Driver</b>", r.get("driver")],
+            ["<b>Requesting Office</b>", r.get("requesting_office"), "<b>Trip Date</b>", r.get("trip_date")],
+            ["<b>Destination</b>", r.get("destination"), "<b>No. of Passengers</b>", r.get("passengers")],
+            ["<b>Purpose</b>", r.get("purpose")],
+            ["<b>Fuel Used / Issued in Liters</b>", r.get("fuel_liters"), "<b>Distance Travelled</b>", distance],
+            ["<b>Odometer Start</b>", r.get("odometer_start"), "<b>Odometer End</b>", r.get("odometer_end")],
+            ["<b>Status</b>", r.get("status"), "<b>Remarks</b>", r.get("remarks")],
+        ], styles, widths=[1.8 * inch, 1.8 * inch, 1.8 * inch, 1.8 * inch]))
 
-    return generate_pdf_form("TRANSPORTATION SERVICE / VEHICLE UTILIZATION FORM", row.get("id"), sections, signatories)
+        story.append(Spacer(1, 5))
+        story.append(signature_block([
+            ("Requested / Confirmed by", r.get("requesting_office", "")),
+            ("Driver", r.get("driver", "")),
+            ("Checked and Reviewed by", "Transportation Unit Head"),
+            ("Approved by", f"{DIRECTOR_NAME}, Director, General Services Office")
+        ], styles))
+
+    return make_pdf("TRANSPORTATION SERVICE / VEHICLE UTILIZATION FORM", r.get("id"), build)
 
 
 init_db()
@@ -759,13 +845,13 @@ with st.sidebar:
         ]
     )
     st.markdown("---")
-    st.caption("Prototype v2 · Institutional Forms · SQLite")
+    st.caption("Prototype v3 · Actual GSO Forms · AI Narrative")
 
 
 st.markdown(f"""
 <div class="gso-hero">
     <h1>{APP_TITLE}</h1>
-    <p>Institutional request intake, AI-assisted triage, deployment, emergency response, completion reporting, transportation monitoring, and printable approval forms.</p>
+    <p>Institutional request intake, AI-assisted classification, deployment, emergency response, completion reporting, transportation monitoring, and printable GSO forms.</p>
 </div>
 """, unsafe_allow_html=True)
 
@@ -773,18 +859,14 @@ st.markdown(f"""
 if page == "Dashboard":
     req = read_table("requests")
     ready = read_table("ready_reports")
-    dep = read_table("deployments")
-    comp = read_table("completions")
-    veh = read_table("vehicles")
 
     c1, c2, c3, c4, c5 = st.columns(5)
-
     c1.metric("Total Requests", len(req))
 
     if not req.empty:
         c2.metric("Active", int(req[~req["status"].isin(["Completed", "Cancelled"])].shape[0]))
-        c3.metric("Emergency", int((req["classification"] == "Emergency").sum()))
-        c4.metric("Special Projects", int((req["classification"] == "Special Project").sum()))
+        c3.metric("Emergency", int((req["system_classification"] == "Emergency").sum()))
+        c4.metric("Special Projects", int((req["system_classification"] == "Special Project").sum()))
     else:
         c2.metric("Active", 0)
         c3.metric("Emergency", 0)
@@ -798,31 +880,27 @@ if page == "Dashboard":
         st.info("No records yet. Start by creating a New Service Request.")
     else:
         col1, col2 = st.columns(2)
-
         with col1:
             st.write("Requests by Unit")
             st.bar_chart(req["unit"].value_counts())
-
         with col2:
             st.write("Requests by Status")
             st.bar_chart(req["status"].value_counts())
 
         col3, col4 = st.columns(2)
-
         with col3:
-            st.write("Requests by Classification")
-            st.bar_chart(req["classification"].value_counts())
-
+            st.write("System Classification")
+            st.bar_chart(req["system_classification"].value_counts())
         with col4:
-            st.write("Requests by Priority")
+            st.write("Priority")
             st.bar_chart(req["priority"].value_counts())
 
-        st.markdown('<h3 class="section-title">Recent Requests</h3>', unsafe_allow_html=True)
         st.dataframe(
             req[
                 [
                     "id", "created_at", "requestor", "office", "unit",
-                    "request_type", "classification", "priority", "status", "building"
+                    "work_classification", "request_type",
+                    "system_classification", "priority", "status", "building"
                 ]
             ],
             use_container_width=True,
@@ -831,7 +909,7 @@ if page == "Dashboard":
 
 
 elif page == "New Service Request":
-    st.markdown('<h3 class="section-title">Digital Service Request / Work Order Intake</h3>', unsafe_allow_html=True)
+    st.markdown('<h3 class="section-title">Digital Service Request Form / Work Order Intake</h3>', unsafe_allow_html=True)
 
     with st.form("request_form", clear_on_submit=True):
         c1, c2, c3 = st.columns(3)
@@ -845,47 +923,62 @@ elif page == "New Service Request":
         building = c6.text_input("Building / Exact Location")
 
         unit = st.selectbox("Concerned GSO Unit", UNITS)
+        work_classification = st.selectbox("Requested Work Classification", WORK_CLASSIFICATIONS)
         request_type = st.multiselect("Scope / Type of Work", REQUEST_TYPES)
 
-        purpose = st.text_area("Purpose of Request")
-        description = st.text_area("Work Description / Nature of Concern", height=130)
-
-        c7, c8 = st.columns(2)
+        c7, c8, c9 = st.columns(3)
         schedule_from = c7.date_input("Preferred Start Date", value=date.today())
         schedule_to = c8.date_input("Preferred End Date", value=date.today())
+        working_hours = c9.text_input("Preferred Working Hours", placeholder="Example: 8:00 AM - 5:00 PM")
 
-        site_access = st.multiselect(
-            "Site Access Needed",
+        access_condition = st.selectbox(
+            "Site Coordination / Access Condition",
             [
-                "Ingress", "Egress", "Delivery", "Pull-out", "Room Access",
-                "Utility Shutdown", "After-office Access"
+                "GSO may access the area anytime using authorized keys; requestor to be notified when needed.",
+                "Coordinate with requestor before entry due to sensitive documents, equipment, class, exam, or restricted activity.",
+                "Area is open/common area and may be accessed during working hours.",
+                "Work requires ingress / egress coordination.",
+                "Work requires delivery / pull-out coordination.",
+                "Work requires temporary utility shutdown coordination.",
+                "Others / specify in description."
             ]
         )
 
         docs = st.multiselect(
             "Attached / Required Documents",
             [
-                "Letter Request", "Pre-Inspection Report",
+                "Letter Request",
+                "Pre-Inspection Report",
+                "Service Request",
                 "Program of Works / Cost Estimates",
                 "Material Request / Supply Availability",
-                "Technical Assessment Report", "Safety Permit", "Photos",
-                "Location Sketch", "Others"
+                "Technical Assessment Report",
+                "Safety Permit for Hotworks / Elevated Works",
+                "Photos",
+                "Location Sketch",
+                "Other Attachments"
             ]
         )
 
+        purpose = st.text_area("Purpose of Request")
+        description = st.text_area("Work Description / Nature of Concern", height=130)
+
         st.markdown("#### AI-Assisted Initial Triage")
 
-        c9, c10, c11, c12 = st.columns(4)
-        safety = c9.slider("Safety Risk", 1, 4, 1, help="1 Low, 4 Critical")
-        affected = c10.slider("Users Affected", 1, 4, 1, help="1 Few, 4 Entire Building / Large group")
-        impact = c11.slider("Operational Impact", 1, 4, 1, help="1 Minor, 4 Severe")
-        cost = c12.number_input("Estimated Cost (₱)", min_value=0.0, step=1000.0)
+        c10, c11, c12, c13 = st.columns(4)
+        safety = c10.slider("Safety Risk", 1, 4, 1, help="1 Low, 4 Critical")
+        affected = c11.slider("Users Affected", 1, 4, 1, help="1 Few, 4 Entire Building / Large Group")
+        impact = c12.slider("Operational Impact", 1, 4, 1, help="1 Minor, 4 Severe")
+        complexity = c13.slider("Complexity / Approval Requirement", 1, 4, 1, help="1 Simple, 4 Requires planning, budget, or executive approval")
 
         submitted = st.form_submit_button("Submit Request")
 
     if submitted:
-        text = " ".join(request_type) + " " + purpose + " " + description
-        classification, priority, score, notes = calc_priority(safety, affected, impact, cost, text)
+        text = f"{work_classification} {' '.join(request_type)} {purpose} {description}"
+        system_classification, priority, score, narrative, action, special_note = calc_ai_assessment(
+            safety, affected, impact, complexity, text
+        )
+
         rid = make_id("WO")
 
         insert_record("requests", {
@@ -899,27 +992,31 @@ elif page == "New Service Request":
             "office": office,
             "building": building,
             "unit": unit,
+            "work_classification": work_classification,
             "request_type": ", ".join(request_type),
-            "classification": classification,
+            "system_classification": system_classification,
             "priority": priority,
             "status": "Submitted",
             "purpose": purpose,
             "description": description,
             "schedule_from": str(schedule_from),
             "schedule_to": str(schedule_to),
-            "site_access": ", ".join(site_access),
+            "working_hours": working_hours,
+            "access_condition": access_condition,
             "docs": ", ".join(docs),
             "safety_risk": safety,
             "users_affected": affected,
             "operational_impact": impact,
-            "estimated_cost": cost,
+            "complexity_level": complexity,
             "ai_score": score,
-            "ai_notes": notes,
-            "recommended_action": "For GSO Service Desk assessment and routing."
+            "ai_narrative": narrative,
+            "recommended_action": action,
+            "special_project_note": special_note
         })
 
         st.success(f"Request submitted: {rid}")
-        st.info(f"Suggested Classification: {classification} | Priority: {priority} | Score: {score}. {notes}")
+        st.info(f"System Classification: {system_classification} | Priority: {priority} | AI Score: {score}")
+        st.write(narrative)
 
 
 elif page == "RAPID Assessment":
@@ -935,7 +1032,7 @@ elif page == "RAPID Assessment":
 
         st.write(f"**Location:** {r['building']}")
         st.write(f"**Unit:** {r['unit']}")
-        st.write(f"**Current Classification:** {r['classification']}")
+        st.write(f"**Current System Classification:** {r['system_classification']}")
         st.write(f"**Current Priority:** {r['priority']}")
 
         with st.form("rapid"):
@@ -944,29 +1041,19 @@ elif page == "RAPID Assessment":
             safety = c1.slider("Safety Risk", 1, 4, int(r["safety_risk"] or 1))
             affected = c2.slider("Users Affected", 1, 4, int(r["users_affected"] or 1))
             impact = c3.slider("Operational Impact", 1, 4, int(r["operational_impact"] or 1))
-            cost = c4.number_input(
-                "Estimated Cost (₱)",
-                min_value=0.0,
-                value=float(r["estimated_cost"] or 0),
-                step=1000.0
-            )
-
-            action = st.text_area("Recommended Action", value=r.get("recommended_action") or "")
+            complexity = c4.slider("Complexity / Approval Requirement", 1, 4, int(r["complexity_level"] or 1))
 
             status = st.selectbox(
                 "Next Status",
-                ["For Approval", "Approved", "Assigned", "Deferred", "Cancelled"]
+                ["For Approval", "Approved", "Assigned", "For VP / Executive Approval", "For Budget Review", "Deferred", "Cancelled"]
             )
 
             go = st.form_submit_button("Save RAPID Assessment")
 
         if go:
-            classification, priority, score, notes = calc_priority(
-                safety,
-                affected,
-                impact,
-                cost,
-                r["description"] + " " + r["purpose"]
+            text = f"{r['work_classification']} {r['request_type']} {r['purpose']} {r['description']}"
+            system_classification, priority, score, narrative, action, special_note = calc_ai_assessment(
+                safety, affected, impact, complexity, text
             )
 
             conn = get_conn()
@@ -975,27 +1062,21 @@ elif page == "RAPID Assessment":
             cur.execute("""
                 UPDATE requests
                 SET safety_risk=?, users_affected=?, operational_impact=?,
-                    estimated_cost=?, classification=?, priority=?, ai_score=?,
-                    ai_notes=?, recommended_action=?, status=?, updated_at=?
+                    complexity_level=?, system_classification=?, priority=?,
+                    ai_score=?, ai_narrative=?, recommended_action=?,
+                    special_project_note=?, status=?, updated_at=?
                 WHERE id=?
             """, (
-                safety, affected, impact, cost, classification, priority,
-                score, notes, action, status, now(), req_id
+                safety, affected, impact, complexity,
+                system_classification, priority, score, narrative,
+                action, special_note, status, now(), req_id
             ))
 
             conn.commit()
             conn.close()
 
-            st.success(f"RAPID saved. Classification: {classification}; Priority: {priority}; Score: {score}")
-
-            r2 = get_request(req_id)
-            pdf = generate_rapid_pdf(r2)
-            st.download_button(
-                "Download RAPID PDF",
-                data=pdf,
-                file_name=f"{req_id}_RAPID.pdf",
-                mime="application/pdf"
-            )
+            st.success(f"RAPID saved. Classification: {system_classification}; Priority: {priority}; AI Score: {score}")
+            st.write(narrative)
 
 
 elif page == "READY Emergency":
@@ -1013,8 +1094,14 @@ elif page == "READY Emergency":
         category = c4.selectbox(
             "Incident Category",
             [
-                "Civil/Structural", "Electrical", "Plumbing", "Mechanical",
-                "Grounds", "Safety Hazard", "Flooding", "Vehicle", "Other"
+                "Civil/Structural",
+                "Electrical",
+                "Plumbing",
+                "Mechanical",
+                "Grounds",
+                "Safety Hazard",
+                "Flooding",
+                "Other"
             ]
         )
         priority = c5.selectbox("Priority Level", ["Critical", "High", "Moderate", "Low"])
@@ -1025,13 +1112,17 @@ elif page == "READY Emergency":
         affected_ops = st.text_area("Affected Occupants / Operations")
         area_secured = st.radio("Area Secured / Isolated?", ["Yes", "No"], horizontal=True)
 
-        team = st.text_input("GSO Responding Team / Team Leader")
+        responding_team = st.text_input("GSO Responding Team")
+        team_leader = st.text_input("Team Leader")
         initial = st.text_area("Initial Action Taken")
         temp = st.text_area("Temporary Corrective Measures")
 
         utilities = st.multiselect("Utilities Isolated", ["Power", "Water", "ICT", "None"])
         safe = st.radio("Area Declared Safe?", ["Yes", "No"], horizontal=True)
         further = st.radio("Further Repair Required?", ["Yes", "No"], horizontal=True)
+
+        restoration_time = st.text_input("Estimated Restoration Time")
+        actual_completion = st.text_input("Actual Completion Time")
 
         final_status = st.selectbox(
             "Final Status",
@@ -1060,15 +1151,16 @@ elif page == "READY Emergency":
             "hazard_description": hazard_desc,
             "affected_operations": affected_ops,
             "area_secured": area_secured,
-            "responding_team": team,
+            "responding_team": responding_team,
+            "team_leader": team_leader,
             "initial_action": initial,
             "temporary_measures": temp,
             "utilities_isolated": ", ".join(utilities),
             "declared_safe": safe,
             "further_repair": further,
             "followup_wo": followup,
-            "restoration_time": "",
-            "actual_completion": "",
+            "restoration_time": restoration_time,
+            "actual_completion": actual_completion,
             "final_status": final_status,
             "findings": findings
         })
@@ -1092,23 +1184,26 @@ elif page == "READY Emergency":
                 "office": office,
                 "building": location,
                 "unit": "Facility Maintenance Unit",
+                "work_classification": "Emergency Repair",
                 "request_type": category,
-                "classification": "Emergency",
+                "system_classification": "Emergency",
                 "priority": priority_map[priority],
                 "status": "Submitted",
                 "purpose": "Follow-up work order from READY emergency report",
                 "description": concern,
                 "schedule_from": str(date.today()),
                 "schedule_to": str(date.today()),
-                "site_access": "Emergency access",
+                "working_hours": "Immediate emergency response",
+                "access_condition": "GSO may access the area anytime using authorized keys; requestor to be notified when needed.",
                 "docs": "READY report",
                 "safety_risk": 4 if priority == "Critical" else 3,
                 "users_affected": 3,
                 "operational_impact": 3,
-                "estimated_cost": 0,
+                "complexity_level": 3,
                 "ai_score": 150,
-                "ai_notes": "Auto-created from emergency READY report.",
-                "recommended_action": "Immediate assessment and deployment."
+                "ai_narrative": "Auto-created from emergency READY report due to further repair requirement.",
+                "recommended_action": "Immediate assessment and deployment.",
+                "special_project_note": ""
             })
 
         st.success(
@@ -1179,17 +1274,16 @@ elif page == "Completion / PRIME":
         req_id = st.selectbox("Select Work Order", req["id"].tolist())
 
         with st.form("prime", clear_on_submit=True):
-            c1, c2 = st.columns(2)
+            c1, c2, c3 = st.columns(3)
             completed = c1.date_input("Date Completed", value=date.today())
             actual = c2.text_input("Actual Completion Time / Duration")
+            team_leader = c3.text_input("Team Leader")
+
+            slippage = st.text_input("Slippage, if any")
 
             work = st.multiselect(
                 "Work Performed",
-                [
-                    "Repair", "Renovation", "Installation", "Maintenance",
-                    "Fabrication", "Emergency Response", "Transport Support",
-                    "Grounds Maintenance"
-                ]
+                ["Repair", "Renovation", "Installation", "Maintenance", "Fabrication", "Emergency Response"]
             )
 
             tools = st.text_area("Tools Used")
@@ -1198,18 +1292,18 @@ elif page == "Completion / PRIME":
             scope = st.text_area("Actual Scope of Works Performed")
             issues = st.text_area("Issues Encountered")
 
-            c3, c4, c5 = st.columns(3)
-            condition = c3.selectbox(
+            c4, c5, c6 = st.columns(3)
+            condition = c4.selectbox(
                 "Final Condition",
                 ["Fully Completed", "Partially Completed", "Deferred", "For Rework"]
             )
 
-            site_status = c4.multiselect(
+            site_status = c5.multiselect(
                 "Site Status",
                 ["Cleaned", "Safe", "Operational", "Turned Over"]
             )
 
-            rating = c5.selectbox(
+            rating = c6.selectbox(
                 "Completion Rating",
                 ["Excellent", "Satisfactory", "Needs Follow-up", "Critical Observation"]
             )
@@ -1237,6 +1331,8 @@ elif page == "Completion / PRIME":
                 "created_at": now(),
                 "date_completed": str(completed),
                 "actual_completion": actual,
+                "team_leader": team_leader,
+                "slippage": slippage,
                 "work_performed": ", ".join(work),
                 "tools_used": tools,
                 "materials_used": materials,
@@ -1311,7 +1407,6 @@ elif page == "Transportation Log":
         st.success(f"Transportation record saved: {vid}")
 
     df = read_table("vehicles")
-
     if not df.empty:
         df["distance"] = df["odometer_end"] - df["odometer_start"]
         st.dataframe(df, use_container_width=True, hide_index=True)
@@ -1359,6 +1454,15 @@ elif page == "Records & Export":
                     pdf = generate_work_order_pdf(selected)
                     fname = f"{selected_id}_GSO_Work_Order.pdf"
 
+                    rapid_pdf = generate_rapid_pdf(selected)
+                    st.download_button(
+                        "Download RAPID Assessment PDF",
+                        data=rapid_pdf,
+                        file_name=f"{selected_id}_GSO_RAPID.pdf",
+                        mime="application/pdf",
+                        key=f"rapid_pdf_{selected_id}"
+                    )
+
                 elif table == "deployments":
                     req_row = get_request(selected.get("request_id"))
                     pdf = generate_wds_pdf(selected, req_row)
@@ -1373,7 +1477,7 @@ elif page == "Records & Export":
                     pdf = generate_ready_pdf(selected)
                     fname = f"{selected_id}_GSO_READY.pdf"
 
-                elif table == "vehicles":
+                else:
                     pdf = generate_transport_pdf(selected)
                     fname = f"{selected_id}_GSO_Transportation.pdf"
 
@@ -1393,43 +1497,24 @@ elif page == "Admin Guide":
 ### Core Institutional Workflow
 
 1. The Service Desk receives the request through the **New Service Request** page.
-2. The system suggests a classification and priority using safety risk, affected users, operational impact, estimated cost, and key words.
-3. The concerned personnel validates the request through **RAPID Assessment**.
-4. Approved work is moved to **Workforce Deployment** for team assignment, PPE, tools, materials, and target completion.
+2. The system suggests whether the request is **Routine**, **Emergency**, or **Special Project**.
+3. The concerned personnel validates the risk and priority through **RAPID Assessment**.
+4. Approved work proceeds to **Workforce Deployment**.
 5. Completed work is closed through **PRIME Completion Report**.
-6. Emergency events are handled through **READY Emergency** and may create a follow-up work order.
-7. Vehicle assignments, fuel use, and utilization are recorded under **Transportation Log**.
-8. Printable forms may be downloaded under **Records & Export**.
+6. Emergency events are handled through **READY Emergency**.
+7. Vehicle use is monitored through **Transportation Log**.
+8. Printable institutional PDF forms are generated under **Records & Export**.
 
-### Classification Rules
+### Revised Site Access Logic
 
-**Emergency**  
-Danger to people or property, exposed wires, flooding, blocked road, no water, no power, unsafe condition, or operations disruption.
+The requestor is no longer asked whether GSO can access the site, because GSO may already have authorized keys and operational access.  
+Instead, the form asks for **Site Coordination / Access Condition** so the requestor can identify if the area has sensitive documents, classes, examinations, equipment, restricted activities, utility shutdown needs, delivery, ingress, egress, or pull-out concerns.
 
-**Routine**  
-Daily, recurring, minor, scheduled, or quick-response work using available manpower and materials.
+### Special Project Rule
 
-**Special Project**  
-Work requiring planning, budget, procurement, approval, technical drawings, estimates, or programmed implementation.
+A request may be classified as **Special Project** when it involves planned improvement, upgrading, development of facilities and services, equipment procurement, landscape development, facility upgrades, infrastructure works, or any activity requiring technical assessment, program of works, budget allocation, VP/executive approval, procurement, or programmed implementation.
 
-### Current Prototype Coverage
+### Removed Item
 
-- Work Order / Service Request
-- RAPID Risk Assessment
-- READY Emergency Response
-- WDS Workforce Deployment
-- PRIME Completion Report
-- Transportation Log
-- Dashboard
-- CSV Export
-- Printable PDF Institutional Forms
-
-### Recommended Next Development
-
-- Add user login and role-based access.
-- Add official CSU logo upload in the PDF header.
-- Add email notification to requestor, unit head, and director.
-- Add file upload for photos, letters, safety permits, and cost estimates.
-- Add PostgreSQL database for full deployment.
-- Add public requestor portal and internal GSO management portal.
+Estimated cost was removed from the requestor-side form because GSO work may be handled under MOOE or internal operating resources. Budget-related review is now handled through the **Special Project / Executive Approval** logic.
 """)
